@@ -1,0 +1,5 @@
+. $EZLOG_HOME/ezlog_common/common.d/ezlog_init.source
+
+export EZLOG_WHERELOG_HOME=$EZLOG_HOME/ezlog_wherelog
+
+. $EZLOG_PROFILE_HOME/ezlog_wherelog/conf/ezlog_wherelog.conf

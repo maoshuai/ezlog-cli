@@ -1,0 +1,2 @@
+{EZLOG_BUILD_TIME} 
+# don't change this file, this file will rewrite by ezlog_build component to record the build time

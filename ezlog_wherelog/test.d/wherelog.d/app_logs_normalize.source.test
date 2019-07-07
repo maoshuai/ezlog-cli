@@ -1,0 +1,42 @@
+# 运行test.profile
+. $EZLOG_HOME/ezlog_test/ezlog_test.profile
+# 导入这个source文件
+. $EZLOG_TEST_BASE_SOURCE
+
+
+test_normalize_get_file_compress_type_should_be_gz()
+{
+	local fileName="/home/maoshuai/bits.log.gz"
+	local compressType=`normalize_get_file_compress_type $fileName`
+	assertEquals "GZ" $compressType
+
+}
+
+test_normalize_get_file_compress_type_should_be_plain_text()
+{
+	local fileName="/home/maoshuai/bits.log"
+	local compressType=`normalize_get_file_compress_type $fileName`
+	assertEquals "PLAIN_TEXT" $compressType
+
+}
+
+test_normalize_index_file()
+{
+	local indexFile=$EZLOG_HOME/ezlog_wherelog/test.d/wherelog.d/app_logs_normalize.source.test_file/index_file.txt
+	local expected="2016-04-08 07:52:20,324 nologin-2016040881643031.932763 648 receiveTask FAILED LPB0310201800151 36f71408efaa08f200df BITSLP0204 nologin"
+	assertEquals "$expected" "`normalize_index_file  $indexFile | head -n 1`"
+
+
+}
+
+
+test_normalize_index_file_gz_index_file()
+{
+	local indexFile=$EZLOG_HOME/ezlog_wherelog/test.d/wherelog.d/app_logs_normalize.source.test_file/index_file.txt.gz
+	local expected="2016-04-08 07:52:20,324 nologin-2016040881643031.932763 648 receiveTask FAILED LPB0310201800151 36f71408efaa08f200df BITSLP0204 nologin"
+	assertEquals "$expected" "`normalize_index_file  $indexFile | head -n 1`"
+}
+
+
+# 运行shunit2测试
+. $shunit2

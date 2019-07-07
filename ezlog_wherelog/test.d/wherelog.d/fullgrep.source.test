@@ -1,0 +1,25 @@
+# 运行test.profile
+. $EZLOG_HOME/ezlog_test/ezlog_test.profile
+# 导入这个source文件
+. $EZLOG_TEST_BASE_SOURCE
+
+javaExceptionLog=$EZLOG_CURRENT_TEST_DIR/fullgrep.source.test.test_file/DUMP_LOG.txt
+logTitlePattern="^(19|20)[0-9]{2}\-[0-1][0-9]\-[0-3][0-9] [0-2][0-9]:[0-6][0-9]:[0-6][0-9],[0-9]{3} \["
+
+# grep出整个错误堆栈
+test_full_grep_java_exception()
+{
+	local lineNum=`full_grep "201604080050480048.163329" "$logTitlePattern" $javaExceptionLog | wc -l`
+	assertEquals 48 $lineNum	# 应该grep出了48行
+
+}
+
+
+test_full_grep_by_process_name()
+{
+	local lineNum=`full_grep "processId_recvRequestProcess" "$logTitlePattern" $javaExceptionLog | fgrep "Caused by: com.bocom.bits.support.exception.BitsRuntimeBusinessException: [BS1061]" | wc -l `
+	assertEquals 9 $lineNum	# 应该grep出了9条相关记录
+}
+
+# 运行shunit2测试
+. $shunit2

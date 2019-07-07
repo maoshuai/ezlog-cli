@@ -1,0 +1,28 @@
+# 运行test.profile
+. $EZLOG_HOME/ezlog_test/ezlog_test.profile
+# 导入这个source文件
+. $EZLOG_TEST_BASE_SOURCE 
+
+test_unarchive()
+{
+	# unarchive "$EZLOG_HEALTH_ANALYZE_LOG_DIR" "$EZLOG_HEALTH_ANALYZE_LOG_DIR/unarchive"
+	echo ""
+}
+
+
+test_get_ana_dates()
+{
+	assertEquals "20160501 20160502 20160503 20160504 20160505 20160506 20160507 20160508 20160509 20160510" "`get_ana_dates 20160501 20160510`"
+}
+
+
+
+test_get_anamain_dir_by_date()
+{
+	local dirName=`get_anamain_dir_by_date "$EZLOG_HEALTH_ANALYZE_LOG_UNARCHIVE_DIR" 20160501`
+	assertEquals "$EZLOG_HEALTH_ANALYZE_LOG_UNARCHIVE_DIR/anamain_20160501_20160502" "$dirName"
+}
+
+
+# 运行shunit2测试
+. $shunit2

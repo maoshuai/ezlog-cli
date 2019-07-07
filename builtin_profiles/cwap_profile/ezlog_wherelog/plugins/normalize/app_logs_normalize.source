@@ -1,0 +1,136 @@
+# 日志格式的桥接
+
+# 将索引文件格式化
+# 输出的日志格式是
+# 其中第1-4是固定的，
+# 其中第1-4列为：日期，时间，process唯一号，process总耗时毫秒数；
+# 后面是自定义的关键字，推荐的关键字有：
+# process名称，process成功标志，交易码，柜员号
+# 2016-04-08 00:50:48,928 2016040881708010.705021 137 KEYWORD1 KEYWORD2 KEYWORD3
+# 这个函数的实现，要注意两点：
+# 1. 面对的文件是否被压缩了
+# 2. 按照规范，将日志关键字整理，成功标志用SUCESS FAILED表示
+
+# 比如：BITS索引日志规范化后的形式：
+# 2016-04-08 07:53:34,194 3100502-2016040881757428.723453 222 receiveTask SUCCESS LPB0310201800151 36f71408efaa08f200df BITSLP0204 3100502
+#  日期 			时间			process唯一编号				耗时		process名 	成功标志 	业务编号			EVENT_NO			交易码		柜员号
+
+# 注意，这个函数设计的时候，只能传入一个文件
+normalize_index_file()
+{
+	# 索引文件
+	local indexFileName="$1"
+	
+	# 根据是否压缩分别进行处理
+	(
+		if [ x"GZ" = x"`normalize_get_file_compress_type $indexFileName`" ];then
+			gunzip -c "$indexFileName" # 解压到stdout
+		else
+			cat "$indexFileName"
+		fi
+
+
+	) 2>/dev/null |  # 在这里抑制cat到不存在的文件的stderr
+	fgrep -v "service.timing" |
+	# 1         2          3            4                                                5   6           7                        8          9                10     11     12
+	# 50995455 2016-05-04 07:28:20.952  requestId:78F36BC3-FF00-FF7A-AC54-31E47772B53F   I ProcessId: initializeModuleData ,LogTraceNo: h148122-7162404770 ,time consumed: 1285 ms! wsExecutime: 0 ms! wsOccurs: 0 noWSExecutime: 1285 ms!
+	awk -F "[][]" '{print $1, $4 ,$5}' | 
+	# 2016-05-04 07:28:20,952 78F36BC3-FF00-FF7A-AC54-31E47772B53F initializeModuleData 1285
+	awk '{
+		requestId=substr($4,11, 36) # 将requestId字样去除
+		gsub(/\./,",",$3) # 将时间戳里面毫秒的分隔符由点号，替换为逗号: 07:28:20.952变成07:28:20,952
+		print $2, $3, requestId, $12 ,  $7
+
+	}' 
+}
+
+# C语言风格的字符串格式化，将索引文件进行格式化对其输出，便于阅读
+# 注意：不需要带最后的\n表示换行
+normalize_index_file_format_string()
+{
+	echo "%-10s %-11s %-32s %6d %-50s"
+}
+
+# 根据8位日期，获取对应的日志文件夹名称
+# 默认情况下，直接返回，如果日志文件夹结构有特殊，复写这个方法
+# 比如20160802，如果目录的名称也是这样的，则直接返回，如果目录的名称是类似2016-08-02，则需要在这里处理一下
+normalize_log_dir_by_date()
+{
+	local eightBitDate="$1" # 比如20160802
+	local year=`echo $eightBitDate | cut -c1-4`
+	local month=`echo $eightBitDate | cut -c5-6`
+	local day=`echo $eightBitDate | cut -c7-8`
+
+	local dirName="${year}-${month}-${day}" # CWAP的日志归档日期格式是2016-08-02
+
+	echo "$dirName"
+}
+
+# 根据8位日期，获取日志文件夹当天的归档目录（绝对路径）
+# 不同的系统，根据需求实现此方法。
+# 默认输出应用根目录下的8位日期
+normalize_get_log_dir_by_date()
+{
+	local dateNum=$1
+	local dirDate=`normalize_log_dir_by_date $dateNum`
+	# CWAP，是把日志归档到一个叫archive的目录下
+	local dirName="$EZLOG_APP_LOGS_HOME/archive/$dirDate"
+	echo $dirName
+}
+
+
+
+# 获取非归档日志的目录
+# 默认就是 $EZLOG_APP_LOGS_HOME
+normalize_get_unarchive_log_dir()
+{
+	echo $EZLOG_APP_LOGS_HOME
+}
+
+# 判断一个文件的压缩类型，本实现是根据文件拓展名进行判断
+# 输入：文件名或文件全路径
+# 输出：文件压缩类型 :
+# PLAIN_TEXT : 没有压缩
+# GZ : gzip压缩
+normalize_get_file_compress_type()
+{
+	local fileName="$1"
+	local gzFilePattern=".*\.gz$"
+	local greped=`echo "$fileName" | grep -E "$gzFilePattern" 2>/dev/null`
+	if [ "x$greped" != "x" ];then
+		echo "GZ"
+		return
+	fi
+
+	echo "PLAIN_TEXT"
+}
+
+# 在取的一个唯一编号的日志之后，打印概要业务信息，这些概要业务信息，主要来自于索引记录里的自定义keyword
+# 第一个参数：规范话后的索引记录
+# 调用_printReportMessage输出信息
+# 当然，也可以在这里写自己的代码，去访问其他资源
+normalize_print_businessInfo()
+{
+	# 第一个参数，会传入日志索引记录（根据normalize_index_file整理后的格式，比如BITS的如下）
+	# 2016-04-08 07:53:34,194 3100502-2016040881757428.723453 222 receiveTask SUCCESS LPB0310201800151 36f71408efaa08f200df BITSLP0204 3100502
+	#  日期 			时间			process唯一编号				耗时		process名 	成功标志 	业务编号			EVENT_NO			交易码		柜员号
+	indexRecord="$1"
+	
+	local processName=`echo "$indexRecord" | awk '{print $5}'`
+	local processTranCode=`echo "$indexRecord" | awk '{print $9}'`
+	local processBusinessId=`echo "$indexRecord" | awk '{print $7}'`
+	local processEventNo=`echo "$indexRecord" | awk '{print $8}'`
+
+	# 中文的交易名称并不在索引文件里面，所以这里面从一个预置的AP_FUNC.txt文件里面根据tranCode映射得到
+	if [ x"" != x"$processTranCode" ];then
+		processTranName=`grep $processTranCode $EZLOG_HOME/ezlog_wherelog/wherelog.d/AP_FUNC.txt | awk '{print $2}'`
+	fi
+	
+	
+	_printReportMessage  $outputDir "      PROCESS ID:  $processName"
+	# _printReportMessage  $outputDir "      TRAN CODE:   $processTranCode"
+	# _printReportMessage  $outputDir "      TRAN NAME:   $processTranName"
+	# _printReportMessage  $outputDir "      BUSINESS_ID: $processBusinessId"
+	# _printReportMessage  $outputDir "      EVENT_NO:    $processEventNo"
+}
+

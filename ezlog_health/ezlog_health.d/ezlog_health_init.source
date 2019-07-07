@@ -1,0 +1,6 @@
+# 所有的ezlog_health脚本都要source这个文件
+# ezlog_common init
+. $EZLOG_HOME/ezlog_common/common.d/ezlog_init.source
+
+# 载入ezlog_health的config
+. $EZLOG_PROFILE_HOME/ezlog_health/conf/ezlog_health.conf

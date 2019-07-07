@@ -1,0 +1,66 @@
+
+
+# 返回一个文件的修改时间，格式如：10:55:21
+# TODO 能否加上缓存，stat的代价太高
+# 兼容AIX和linux以及mac os
+getLogModifyTime()
+{
+	logDebug "getLogModifyTime begins:"
+
+	# 这个地方避免因为系统语言不同导致的bug，统一要求在英文环境处理
+	old_LC_ALL=$LC_ALL
+	LC_ALL=en_US
+	local fileNameToGetmodifyDateAndTime=$1
+	local logDate=$2 # 由于logback归档日志，会在下一次写入日志的时候才归档，因此可能导致当天的日志在次日才归档，那么其修改日期就是次日。这里要比较一下，如果文件的修改日期与日志时间不符，则将其修改时间设置为23:59:59
+
+	logInfo "fileNameToGetmodifyDateAndTime=$fileNameToGetmodifyDateAndTime, logDate=$logDate"
+
+	local osname=`get_os_type`
+	local modifyDateAndTime="" # 下面的步骤将 modifyDateAndTime整理成一个格式如下：06 10:14:43，06代表日期，后面是时间。由于AIX里面给的英文月份，处理起来稍显麻烦。所以这里只提取几号。理论上logback不应该超过1个月都没有归档吧？
+	if [ "x"$osname = x"AIX" ];then
+		modifyDateAndTime=`istat $fileNameToGetmodifyDateAndTime | grep "Last modified" | awk '{print $5, $6}'`
+	elif [ "x"$osname = x"Linux" ];then
+		modifyDateAndTime=`stat $fileNameToGetmodifyDateAndTime | grep "Modify" |  awk -F "[ .]" '{date=substr($2, 9,2);print date, $3}'`
+	elif [ "x"$osname = x"Darwin" ];then
+		modifyDateAndTime=`istat $fileNameToGetmodifyDateAndTime | grep "Last modified" | awk '{print $5, $6}'`
+	elif [ x"$osname" = x"HP-UX" ];then # 对于HP-UX，使用perl获取文件修改时间
+		modifyDateAndTime=`$EZLOG_HOME/ezlog_wherelog/wherelog.d/file_date.pl $fileNameToGetmodifyDateAndTime`
+		logDebug "using perl to get file modify time: $modifyDateAndTime"
+	else
+		LC_ALL=$old_LC_ALL # 还原语言
+		throw "Unspported OS: $osname"
+	fi
+	LC_ALL=$old_LC_ALL # 还原语言
+
+
+	logDebug "get modifyDateAndTime=$modifyDateAndTime"
+
+	# 先获取文件的原始修改时间
+	local modifyTime=`echo $modifyDateAndTime | awk '{print $2}' `
+
+	logDebug "file original modifyTime=$modifyTime"
+
+	# 后去文件的修改日期
+	local modifyDate=`echo $modifyDateAndTime | awk '{print $1}' `
+	logDebug "file original modifyDate=$modifyDate"
+
+	if [ ${#modifyDate} -eq 1 ];then # 如果是各位数日期，要补充一个0在前面
+		modifyDate="0$modifyDate"
+		logDebug "file two bit modifyDate=$modifyDate"
+	fi
+
+	if [ x"$logDate" != x"" ];then
+		local logDateLast2bit=`echo $logDate | cut -c7-8` # 从20160802获取最后两位：02
+		if [ x"$logDateLast2bit" != x"$modifyDate" ];then # 如果日期不一样，那么就把日期修改为23:59:59
+			logDebug "It is not the right date, set modifyTime to 23:59:59"
+			modifyTime="23:59:59"
+		fi
+	fi
+
+	logInfo "final modifyTime=$modifyTime"
+
+	echo $modifyTime
+
+
+
+}

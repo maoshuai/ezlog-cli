@@ -1,0 +1,579 @@
+# 格式化XML或JSON的工具，主要是对json_xml_format.jar的包装器
+
+#
+if [ x$EZLOG_JAVA_HOME = "x" ];then
+	EZLOG_JAVA_HOME=/usr/java6 # AIX
+	if [ ! -d $EZLOG_JAVA_HOME ];then # suse linux
+		EZLOG_JAVA_HOME=/usr/java/default
+	fi
+fi
+
+if [ ! -d $EZLOG_JAVA_HOME ];then
+	throw "EZLOG_JAVA_HOME not found: $EZLOG_JAVA_HOME"
+fi
+
+JAR_FILE=$EZLOG_PROFILE_HOME/ezlog_wherelog/plugins/format/prettyPrintXmlJson.jar
+JSON_FILE_PATTERN="jsonServerMsg"
+XML_FILE_PATTERN="SOAP_LOG.txt"
+
+
+############################## 导入依赖shell
+# . $deployDir/common.d/logUtil.sh #日志支持
+# . $deployDir/common.d/commonUtil.sh #日志支持
+##############################
+
+# TODO 消除这个全局变量
+threadLogDir=""
+formatLogs()
+{
+	threadLogDir="$1"
+	_formatJsonLog $threadLogDir/*${JSON_FILE_PATTERN}*
+	_formatXmlLog $threadLogDir/*${XML_FILE_PATTERN}*
+}
+
+
+# 针对传入的JSON日志进行pretty格式化
+_formatJsonLog()
+{
+	if [ ! -e $* ];then
+		logInfo "No json file found, skip format: $*"
+		return 0
+	fi
+	logInfo "Formating json: $*"
+
+	for originalLogSwitchFile in $*;do
+		_splitJsonFromLogFile $originalLogSwitchFile
+		formatJsonFiles $threadLogDir/TEMP_ORI_JSON*
+		_formatLOGSWITCH $originalLogSwitchFile  $threadLogDir/TEMP_FORMAT_JSON_ALL_IN_ONE
+
+
+		rm -rf $originalLogSwitchFile
+		mv $threadLogDir/LOG_SWITCH_FORMAT $originalLogSwitchFile
+
+
+		clearnPrettyJsonTempFiles
+
+	done
+
+}
+
+
+# 对传入的XML日志进行pretty格式化
+_formatXmlLog()
+{
+	if [ ! -e $* ];then
+		logInfo "No XML file found, skip format: $*"
+		return 0
+	fi
+	logInfo "Formating XML: $*"
+
+	for oriLog in $*;do
+		splitSoapFromLogFile $oriLog
+		formatXmlFile $threadLogDir/TEMP_ORI_SOAP*
+
+		formatSoapLogByAllInOneFile $oriLog  $threadLogDir/TEMP_FORMAT_XML_ALL_IN_ONE
+
+		rm -rf $oriLog
+		mv $threadLogDir/SOAP_LOG_FORMAT $oriLog
+
+		cleanPrettyXMLTempFiles
+
+	done
+}
+
+
+
+
+_doPretty()
+{
+	local formatType=$1 # XML或者JSON
+	shift
+	local formatFiles=$*
+
+	local errorFile=/tmp/TEMP_ERROR`date "+%Y%m%d%H%M%S"`$RANDOM
+	$EZLOG_JAVA_HOME/bin/java -jar $JAR_FILE $formatType $formatFiles 2>$errorFile
+	
+
+	if [ -s $errorFile ];then
+		throw "Java failed to format $formatType. use [wherelog -f 0 thread_id] to skip this. \njava Error:\n`cat $errorFile`"
+	fi
+	rm -rf $errorFile
+}
+
+# 格式化输出JSON
+_prettyJson()
+{
+	_doPretty "JSON" $*
+}
+
+# 格式化输出XML
+prettyXml()
+{
+	_doPretty "XML" $*
+}
+
+
+
+
+
+
+# 将BITS的LOG_SWITCH文件拆分成若干个只有JSON的文件
+_splitJsonFromLogFile()
+{
+
+
+	local fileName=$1
+	if [ ! -e $fileName ];then
+		throw "File not found: $fileName"
+	fi
+	
+	local jsonFormatTmpFile=$threadLogDir/TEMP_ORI_JSON
+	awk 'BEGIN{
+			num=1
+			# responseNum=2 
+		}
+		{
+			if($0~/Request Message Data : /)
+				{
+					sub(/^[0-9]* (19|20)[0-9]{2}.*Request Message Data : /,"",$0);
+					fileName = "'"$jsonFormatTmpFile"'"num
+					print > fileName
+					close(fileName)
+					num++
+				}
+			else if($0~/Response Message Data : /)
+				{
+					sub(/^[0-9]* (19|20)[0-9]{2}.*Response Message Data : /,"",$0);
+					fileName = "'"$jsonFormatTmpFile"'"num
+					print > fileName
+					close(fileName)
+					num++
+				}
+
+
+		}
+		' $fileName	
+}
+
+
+formatJsonFiles()
+{
+	local fileName=$*
+
+	# 一次性通过java进行格式化，减少java程序的调用次数
+	_prettyJson $fileName >$threadLogDir/TEMP_FORMAT_JSON_ALL_IN_ONE
+}
+
+
+# 用ALL_IN_ONE去格式化LOG_SWITCH
+_formatLOGSWITCH()
+{
+
+	logSwitchFile=$1
+	formatJsonAllInOneFile=$2
+	BEGIN_TAG="2487287372827546_BEGIN_TAG_"
+	END_TAG="2487287372827546_END_TAG_"
+
+	lineNum=1
+	while read line
+	do
+		#2015-07-07 08:37:38,194 [WebContainer : 14] [3300173-2015070785852969.655594 getAllWfMonitorModuleList] [LogSwitch] INFO   Request info :
+		# 中间用个cut，是减轻sed的压力，因为这几个关键词必然是出现在500个字符以内的
+		
+		echo "$line" | 
+		cut -c 1-500 | 
+		sed -n  -e 's/\(.*Request Message Data : \).*/\1/p' -e 's/\(.*Response Message Data : \).*/\1/p' >> $threadLogDir/LOG_SWITCH_FORMAT
+		beginTag=$BEGIN_TAG$lineNum
+		endTag=$END_TAG$lineNum
+		awk 'BEGIN{
+			beginFound="no"
+			endFound="no"
+		}
+		{
+			if($0~/^'"$beginTag"'/)
+				{
+					beginFound="yes"
+				}
+			else if($0~/^'"$endTag"'/)
+				{
+					endFound="yes"
+				}
+			else if(beginFound=="yes" && endFound=="no")
+				{
+					print
+				}
+				
+		}' $formatJsonAllInOneFile  >> $threadLogDir/LOG_SWITCH_FORMAT
+		echo "">> $threadLogDir/LOG_SWITCH_FORMAT
+		echo "">> $threadLogDir/LOG_SWITCH_FORMAT
+		echo "">> $threadLogDir/LOG_SWITCH_FORMAT
+		echo "">> $threadLogDir/LOG_SWITCH_FORMAT
+		let "lineNum=lineNum+1"
+	done<$logSwitchFile
+
+}
+
+
+
+
+clearnPrettyJsonTempFiles()
+{
+	rm -rf $threadLogDir/TEMP_ORI_JSON*
+	rm -rf $threadLogDir/TEMP_FORMAT_JSON_ALL_IN_ONE*
+
+
+}
+
+
+cleanPrettyXMLTempFiles()
+{
+	rm -rf $threadLogDir/TEMP_ORI_SOAP*
+	rm -rf $threadLogDir/TEMP_FORMAT_XML_ALL_IN_ONE*
+}
+
+
+
+
+
+
+
+
+
+# 将BITS的LOG_SWITCH文件拆分成若干个只有JSON的文件
+# 通过getFileNum方法，将文件名规整为10位数字
+splitSoapFromLogFile()
+{
+
+
+	local fileName=$1
+	if [ ! -e $fileName ];then
+		throw "File not found: $fileName"
+	fi
+	
+	local soapFormatTempFile=$threadLogDir/TEMP_ORI_SOAP
+	awk 'BEGIN{
+			num=0
+			wsType=0
+			isContinueLine="no"
+			
+		}
+
+		function getFileNum(oriNum)
+			{
+				fileZero="0000000000" # 10个零
+				fileNumLength=10 # 文件编号恒定为10位数
+
+				fileNum=fileZero""oriNum
+				
+				oriLength=length(fileNum)
+				fileNum=substr(fileNum, oriLength-fileNumLength+1, oriLength )
+				return fileNum
+			}
+
+
+		{
+			
+			tempLine=substr($0,1,500)
+
+
+			if(tempLine~/org.springframework.ws.client.MessageTracing.sent/)
+				{
+					wsType=1
+					isContinueLine="no"
+				}
+			else if(tempLine~/org.springframework.ws.client.MessageTracing.received/)
+				{
+					wsType=2
+					isContinueLine="no"
+				}
+			else if(tempLine~/org.springframework.ws.server.MessageTracing.received/)
+				{
+					wsType=3
+					isContinueLine="no"
+				}
+			else if(tempLine~/org.springframework.ws.server.MessageTracing.sent/)
+				{
+					wsType=4
+					isContinueLine="no"
+				}
+			else
+				{
+					isContinueLine="yes"
+				}
+
+			
+
+				
+			# 客户端发送，只有一个xml
+			if(wsType==1)
+				{
+					#print "dosiplit" wsType "1" #
+					if(isContinueLine=="no")
+					{
+						num++
+					}
+					
+					fileNum = getFileNum(num)
+					
+
+					fileName = "'"$soapFormatTempFile"'"fileNum			
+					sub(/^20.* TRACE  Sent request \[/, "", $0) #----------------------
+					sub(/\]$/, "", $0)
+
+
+					print >> fileName
+					close(fileName)
+					
+				}
+				# 客户端接收，有两个xml
+			else if(wsType==2)
+				{
+					#print "dosiplit" wsType "1" #
+
+					sub(/\]$/, "", $0)
+					temp=$0 # 保存一份供第二次替换使用
+
+					if(isContinueLine=="no")
+					{
+						num++
+					}
+					fileNum = getFileNum(num)
+
+					fileName = "'"$soapFormatTempFile"'"fileNum					
+					sub(/^20.* TRACE  Received response \[/, "", $0)  #-----------------
+					sub(/\] for request \[.*/, "", $0)
+					print >> fileName
+
+
+					if(temp~/for request \[/)
+						{
+							#print "dosiplit" wsType "2" #
+							num++
+
+							fileNum = getFileNum(num)
+							fileName = "'"$soapFormatTempFile"'"fileNum
+							sub(/.*for request \[/, "", temp)
+							sub(/\]$/, "", temp)
+											
+							
+							print temp >> fileName
+						}
+					
+					close(fileName)
+					
+
+					
+				}
+				#服务端接收，只有一个xml
+			else if(wsType==3)
+				{
+					if(isContinueLine=="no")
+					{
+						num++
+					}
+					fileNum = getFileNum(num)
+					
+
+					fileName = "'"$soapFormatTempFile"'"fileNum			
+					sub(/^20.*TRACE  Received request \[/, "", $0)
+					sub(/\]$/, "", $0)
+
+
+					print >>  fileName
+					close(fileName)
+					
+				}
+				#服务端发送，有两个xml
+			else if(wsType==4)
+				{
+					sub(/\]$/, "", $0)
+					temp=$0 # 保存一份供第二次替换使用
+
+					if(isContinueLine=="no")
+					{
+						num++
+					}
+					fileNum = getFileNum(num)
+
+					fileName = "'"$soapFormatTempFile"'"fileNum					
+					sub(/^20.*TRACE  Sent response \[/, "", $0)
+					sub(/\] for request \[.*/, "", $0)
+					print >> fileName
+
+
+					if(temp~/for request \[/)
+						{
+							num++
+
+							fileNum = getFileNum(num)
+							fileName = "'"$soapFormatTempFile"'"fileNum
+							sub(/.*for request \[/, "", temp)
+							sub(/\]$/, "", temp)
+											
+							
+							print temp >>  fileName
+						}
+					
+					close(fileName)
+					
+
+				}
+			else
+				{
+					print "Unknow ws type: "
+					print wsType
+				}
+
+
+		}
+		' $fileName	
+}
+
+
+
+formatXmlFile()
+{
+	local fileName=$*
+
+	# 一次性通过java进行格式化，减少java程序的调用次数
+	prettyXml $fileName >$threadLogDir/TEMP_FORMAT_XML_ALL_IN_ONE
+}
+
+
+formatSoapLogByAllInOneFile()
+{
+	local soapLogFile=$1
+	local formatAllInOneFile=$2
+	BEGIN_TAG="2487287372827546_BEGIN_TAG_"
+	END_TAG="2487287372827546_END_TAG_"
+
+	lineNum=1
+	while read line
+	do
+		# soap日志的方式
+		# 1-客户端发送：1条xml
+		# 2-客户端接收：2条xml
+		# 3-服务端接收：1条xml
+		# 4-服务端发送：2条xml
+		wsType=0
+		echo "$line" | fgrep -q "org.springframework.ws.client.MessageTracing.sent"
+		if [ $? -eq 0 ];then
+			wsType=1
+		else
+			echo "$line" | fgrep -q "org.springframework.ws.client.MessageTracing.received"
+			if [ $? -eq 0 ];then
+				wsType=2
+			else
+
+				echo "$line" | fgrep -q "org.springframework.ws.server.MessageTracing.received"
+				if [ $? -eq 0 ];then
+					wsType=3
+				else
+					echo "$line" | fgrep -q "org.springframework.ws.server.MessageTracing.sent"
+					if [ $? -eq 0 ];then
+						wsType=4
+					fi
+					
+				fi
+			fi
+		fi
+
+		# 直接忽略没有日志头的
+		if [ $wsType -eq 0 ];then
+			logInfo "Unknow wsType"
+			continue
+		fi
+
+		# 单条xml
+		if [ $wsType -eq 1 -o $wsType -eq 3 ];then
+
+			echo $line | cut -c 1-500 | sed -n -e 's/\(.*Received request\).*/\1/p' -e 's/\(.*Sent request\).*/\1/p' >> $threadLogDir/SOAP_LOG_FORMAT
+			beginTag=$BEGIN_TAG$lineNum
+			endTag=$END_TAG$lineNum
+			awk 'BEGIN{
+				beginFound="no"
+				endFound="no"
+			}
+			{
+				if($0~/^'"$beginTag"'/)
+					{
+						beginFound="yes"
+					}
+				else if($0~/^'"$endTag"'/)
+					{
+						endFound="yes"
+					}
+				else if(beginFound=="yes" && endFound=="no")
+					{
+						print
+					}
+					
+			}' $formatAllInOneFile >> $threadLogDir/SOAP_LOG_FORMAT
+			echo "" >> $threadLogDir/SOAP_LOG_FORMAT
+			echo "" >> $threadLogDir/SOAP_LOG_FORMAT
+			let "lineNum=lineNum+1"
+
+		else
+
+
+  			echo $line | sed -n -e 's/\(.*Received response\).*/\1/p' -e 's/\(.*Sent response\).*/\1/p' >> $threadLogDir/SOAP_LOG_FORMAT
+			beginTag=$BEGIN_TAG$lineNum
+			endTag=$END_TAG$lineNum
+
+			awk 'BEGIN{
+				beginFound="no"
+				endFound="no"
+			}
+			{
+				if($0~/^'"$beginTag"'/)
+					{
+						beginFound="yes"
+					}
+				else if($0~/^'"$endTag"'/)
+					{
+						endFound="yes"
+					}
+				else if(beginFound=="yes" && endFound=="no")
+					{
+						print
+					}
+					
+			}' $formatAllInOneFile >> $threadLogDir/SOAP_LOG_FORMAT
+
+				
+			let "lineNum=lineNum+1"
+
+			# for request部分
+
+			beginTag=$BEGIN_TAG$lineNum
+			endTag=$END_TAG$lineNum
+			echo "------------------------for request---------------------" >> $threadLogDir/SOAP_LOG_FORMAT		
+			awk 'BEGIN{
+				beginFound="no"
+				endFound="no"
+			}
+			{
+				if($0~/^'"$beginTag"'/)
+					{
+						beginFound="yes"
+					}
+				else if($0~/^'"$endTag"'/)
+					{
+						endFound="yes"
+					}
+				else if(beginFound=="yes" && endFound=="no")
+					{
+						print
+					}
+					
+			}' $formatAllInOneFile >> $threadLogDir/SOAP_LOG_FORMAT
+			echo "" >> $threadLogDir/SOAP_LOG_FORMAT
+			echo "" >> $threadLogDir/SOAP_LOG_FORMAT
+
+			let "lineNum=lineNum+1"
+		fi
+	done<$soapLogFile
+}
+
+
+

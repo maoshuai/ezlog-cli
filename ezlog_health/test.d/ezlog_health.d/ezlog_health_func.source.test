@@ -1,0 +1,26 @@
+# 运行test.profile
+. $EZLOG_HOME/ezlog_test/ezlog_test.profile
+# 导入这个source文件
+. $EZLOG_TEST_BASE_SOURCE 
+
+
+
+test_getProcessNumByDate()
+{
+	getProcessNumByDate "$EZLOG_HEALTH_ANALYZE_LOG_DIR/unarchive" 20160321
+}
+
+
+test_getProcessNumByDate_5000()
+{
+	getProcessNumByDate "$EZLOG_HEALTH_ANALYZE_LOG_DIR/unarchive" 20160321 5000
+}
+
+
+test_getProcessSort()
+{
+	getProcessSort "$EZLOG_HEALTH_ANALYZE_LOG_DIR/unarchive" "20160321 20160322"
+
+}
+# 运行shunit2测试
+. $shunit2

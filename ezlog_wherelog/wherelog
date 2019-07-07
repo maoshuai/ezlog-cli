@@ -1,0 +1,41 @@
+##---------------
+# 面向用户的wherelog命令行
+# author maoshuai
+# date 2016-06-25
+##---------------
+
+wherelog_main()
+{
+	# 自动确定ezlog的部署路径
+	autoGetEzlogHome
+	# 首先检查是否存在EZLOG_HOME变量
+	if [ x$EZLOG_HOME = "x" ];then
+		echo "EZLOG_HOME is not set! ">&2
+		exit 1
+	fi
+
+	. $EZLOG_HOME/ezlog_wherelog/wherelog.d/ezlog_wherelog_init.source
+
+	. $EZLOG_HOME/ezlog_wherelog/wherelog.d/wherelog_api.sh "$@"
+	
+}
+
+
+# EZLOG_HOME变量最好是配置在.profile里，当然如果EZLOG_HOME实在找不到，则会通过这个方法自动获取
+# 这个方法在每一个入口shell执行，并且只能copy paste
+autoGetEzlogHome()
+{
+	if [ x"" = x"$EZLOG_HOME" ];then
+		currentDir=$( cd -P -- "$(dirname -- "$(command -v -- "$0")")" && pwd -P ) # 获取脚本运行的当前目录
+		cd $currentDir
+		cd ..
+		export EZLOG_HOME=`pwd`
+	fi
+}
+
+
+
+
+
+# 调用方法的入口
+wherelog_main "$@"

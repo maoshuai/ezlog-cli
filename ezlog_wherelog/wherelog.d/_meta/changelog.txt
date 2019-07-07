@@ -1,0 +1,8 @@
+6.3.2 2016-07-13 ezlog_build.sh
+6.3.1 2016-07-13 fix some issue on HP-UX
+6.3.0 2016-07-13 support tuoguan, and fix some fatal bugs
+6.2.0 2016-07-07 the first version to support hqbb well
+6.1.1 2016-07-01 fix some bugs at hqbb
+6.1.0 2016-06-30 09:06:42 support hqbb
+6.0.2 2016-06-26 08:58:47
+5.1.0 20160328183913

@@ -1,0 +1,17 @@
+# 检测操作系统环境相关的
+
+# 对操作系统的检测进行了封装，方便以后扩展的时候操作
+get_os_type()
+{
+	osName=`uname`
+	# if [ x"$osName" = x"AIX" ];then
+	# 	echo $osName
+	# elif [ x"$osName" = x"Linux" ];then
+	# 	echo $osName
+	# elif [ x"$osName" = x"Darwin" ];then
+	# 	echo $osName
+	# else
+		echo $osName
+
+}
+

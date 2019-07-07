@@ -1,0 +1,221 @@
+# ezlog_health_period -k p -f 20160321 -t 20160327 -T -s server21 -n queryList_BITSCM1154
+ezlog_health_peroid_main()
+{
+	autoGetEzlogHome
+	
+	# ezlog初始化操作，具体路径相对于当前脚本路径设置
+	. $EZLOG_HOME/ezlog_health/ezlog_health.d/ezlog_health_init.source # ezlog_health的公共初始化（包括载入ezlog_common，加载ezlog_health.conf）
+
+	. $EZLOG_HOME/ezlog_health/ezlog_health.d/pre_process.source
+	. $EZLOG_HOME/ezlog_health/ezlog_health.d/ezlog_health_api.source
+
+
+	if [ x`get_os_type` = "xDarwin" ];then
+		unset OPTIND # 调用getopts最好先重置一下
+	fi
+	while getopts "f:t:k:s:Tn:" arg
+	do
+		case $arg in 
+			n) # 要分析的名称
+				local anaName=$OPTARG
+			;;
+			f) # 是否要解压
+				local _dateFrom=$OPTARG # 分析起日
+			;;
+			t) # 
+				local _dateTo=$OPTARG # 分析止日
+			;;
+			k) # 类别，比如p-process w-webservice s-sql
+				local _kind=$OPTARG # 分析止日
+			;;
+			s) # 服务器名称
+				local _serverName=$OPTARG # 分析止日
+			;;
+			T) # 是否打印表格表头，传入T则代表打印
+				local _printTableTile="true" 
+			;;
+			?)
+				
+			;;
+		esac
+
+	done
+
+
+	# ezlog_health产出日志存放的基地址
+	local dailyLogBaseDir=$EZLOG_HEALTH_DAILY_TEXT_REPORT_DIR
+
+	# 根据传入的服务器名，确定日志文件的基地址
+	if [ x"$_serverName" != x"" ];then
+		dailyLogBaseDir=$dailyLogBaseDir/$_serverName
+	fi
+
+	getStatisticsByName "$_kind" "$anaName" "$_dateFrom" "$_dateTo" "$dailyLogBaseDir"
+	
+}
+
+
+# 根据名称，获取该名称在某一个时间段的统计信息
+getStatisticsByName()
+{
+	local kind=$1 # 判断统计的是那些类型，Process（p)，还是webservice(w)，还是sql语句（s）
+	local anaName=$2 # 要统计的名称，如Process名
+	local _dateFrom=$3 # 统计的开始日期
+	local _dateTo=$4 # 统计的结束日期
+	local dailyLogBaseDir=$5
+
+	# 获取分析的日志日期区间
+	local anaDates=`getDateSeq $_dateFrom $_dateTo`
+
+
+	
+	 # 根据传入的类型，确定使用的分布区间
+	local levelStr
+	if [ x"$kind" = x"p" ];then # process
+			levelStr="$EZLOG_HEALTH_PROCESS_TIME_LEVELS"
+	elif [ x"$kind" = x"w" ];then # webservice
+		levelStr="$EZLOG_HEALTH_WEBSERVICE_TIME_LEVELS"
+	elif [ x"$kind" = x"s" ];then # sql
+		levelStr="$EZLOG_HEALTH_SQL_TIME_LEVELS"
+	fi
+
+	# 打印表头
+	if [ x"true" = x"$_printTableTile" ];then
+		printTitle $levelStr
+	fi
+
+	local anaDate
+	local fileName
+	for anaDate in $anaDates;do
+		# 根据kind类型，获取文件
+		if [ x"$kind" = x"p" ];then # process
+			fileName="PROCESS_COST_DIS_BY_NAME_${anaDate}.TXT"
+		elif [ x"$kind" = x"w" ];then # webservice
+			fileName="WEBSERVICE_COST_DIST_BY_NAME_${anaDate}.TXT"
+		elif [ x"$kind" = x"s" ];then # sql
+			fileName="SQL_COST_DIST_BY_NAME_${anaDate}.TXT"
+		fi
+
+		
+		# 如果文件不存在，则直接按无记录统计
+		if [ ! -e $dailyLogBaseDir/$fileName ];then
+			printNA  $levelStr "$anaDate" "$anaName"
+		else # 否则进行搜索
+
+			grepedRecord="`grep "^${anaName}\ " $dailyLogBaseDir/$fileName`" # grep的关键字要增加一个空格，保证是完全匹配
+
+			if [ x"" != x"$grepedRecord" ];then
+				grepedLineCount=`echo "$grepedRecord" | wc -l`
+				grepedLineCount=`echo $grepedLineCount`
+				if [ $grepedLineCount -gt 1 ];then  # 如果一天内的统计记录的条数超过1，则退出。说明输入的不够精确
+					throw "two many record: search \"$anaName\" in $dailyLogBaseDir/$fileName"
+				else
+					grepedRecord="`echo "$grepedRecord" | sed 's/.\{70\}//'`" # 把第一列的name去掉，一共70个字符
+					echo "$anaDate $grepedRecord" # 否则就输入这一天的统计内容
+				fi
+			else
+				printNA  $levelStr "$anaDate" "$anaName"
+			fi
+
+		fi
+
+		
+	done
+}
+
+
+
+
+
+# 打印表头
+# TODO 需重构
+printTitle()
+{
+	local levelStr=$1
+
+	# 逗号出现的次数
+	local commaNum=`echo "$levelStr" | tr "," "\n" | wc -l`
+	let "totalColumsNum=commaNum+1"
+
+
+	# 首先打印日期
+	local formatStr="%-8s%7s%11s%10s"
+
+	local columnNum
+	let "columnNum=1"
+	while [ $columnNum -le $totalColumsNum ];do
+		local numDisFormat="$numDisFormat%7s"
+		local percentDisFormt="$percentDisFormt%8s"
+		let "columnNum=columnNum+1"
+	done
+	formatStr="$formatStr$numDisFormat  $percentDisFormt\n"
+
+	local titelNames="date totalNum totalCost avgCost"
+
+	local numTitleNames=`echo $levelStr | sed 's/,/ /g'`
+	numTitleNames="$numTitleNames Inf"
+
+	local percentTitleNames=`echo $levelStr | sed 's/,/ /g'`
+	percentTitleNames="$percentTitleNames Inf"
+
+	titelNames="$titelNames $numTitleNames $percentTitleNames"
+
+	printf  "$formatStr" $titelNames
+
+}
+
+# 打印无数据列 需重构
+printNA()
+{
+	local levelStr=$1
+	local date=$2
+	local name=$3
+
+	# 逗号出现的次数
+	local commaNum=`echo "$levelStr" | tr "," "\n" | wc -l`
+	let "totalColumsNum=commaNum+1"
+
+
+
+
+
+	# 首先打印日期
+	local formatStr="%-8s %7s%11s%10s"
+
+	# 表示时间分布的NA个数
+	local NA_dis
+
+	let "columnNum=1"
+
+	while [ $columnNum -le $totalColumsNum ];do
+		local numDisFormat="$numDisFormat%7s"
+		local percentDisFormt="$percentDisFormt%8s"
+		local NA_dis="$NA_dis - -"
+		let "columnNum=columnNum+1"
+	done
+	formatStr="$formatStr$numDisFormat  $percentDisFormt\n"
+
+	titelNames="$date - - - $NA_dis"
+	logDebug "date=$date"
+	logDebug "$titelNames"
+
+	printf  "$formatStr" $titelNames
+}
+
+
+
+# EZLOG_HOME变量最好是配置在.profile里，当然如果EZLOG_HOME实在找不到，则会通过这个方法自动获取
+# 这个方法在每一个入口shell执行，并且只能copy paste
+autoGetEzlogHome()
+{
+	if [ x"" = x"$EZLOG_HOME" ];then
+		currentDir=$( cd -P -- "$(dirname -- "$(command -v -- "$0")")" && pwd -P ) # 获取脚本运行的当前目录
+		cd $currentDir
+		cd ..
+		export EZLOG_HOME=`pwd`
+	fi
+}
+
+
+# 入口函数
+ezlog_health_peroid_main $*

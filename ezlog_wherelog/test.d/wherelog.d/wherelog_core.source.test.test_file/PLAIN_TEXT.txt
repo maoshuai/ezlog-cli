@@ -1,0 +1,10 @@
+2016-04-08 00:50:48,928 [bits-jms.serverContainer2-1] [201604080050480048.163329 ] [TRANS_TIME_BITS] INFO   recvRequestProcess 419 null null null FAILED
+2016-04-08 00:50:58,572 [bits-jms.serverContainer3-2] [201604080050218058.161222 ] [TRANS_TIME_BITS] INFO   recvRequestProcess 354 null null null FAILED
+2016-04-08 00:50:58,579 [bits-jms.serverContainer1-1] [201604080050337058.608437 ] [TRANS_TIME_BITS] INFO   recvRequestProcess 241 null null null FAILED
+2016-04-08 00:50:58,637 [bits-jms.serverContainer2-1] [201604080050480058.645853 ] [TRANS_TIME_BITS] INFO   recvRequestProcess 156 null null null FAILED
+2016-04-08 00:50:58,843 [bits-jms.serverContainer3-2] [201604080050682058.646551 ] [TRANS_TIME_BITS] INFO   recvRequestProcess 161 null null null FAILED
+2016-04-08 00:51:08,437 [bits-jms.serverContainer1-1] [201604080051272008.749087 ] [TRANS_TIME_BITS] INFO   recvRequestProcess 164 null null null FAILED
+2016-04-08 01:43:54,286 [bits-jms.serverContainer2-1] [201604080143728053.747663 ] [TRANS_TIME_BITS] INFO   recvRequestProcess 557 null null null FAILED
+2016-04-08 01:43:54,300 [bits-jms.serverContainer3-2] [201604080143855053.968938 ] [TRANS_TIME_BITS] INFO   recvRequestProcess 444 null null null FAILED
+2016-04-08 01:43:54,308 [bits-jms.serverContainer1-1] [20160408014307054.565298 ] [TRANS_TIME_BITS] INFO   recvRequestProcess 300 null null null FAILED
+2016-04-08 07:52:20,324 [WebContainer : 2] [nologin-2016040881643031.932763 receiveTask] [TRANS_TIME_BITS] INFO   receiveTask 648 BITSLP0204 LPB0310201800151 36f71408efaa08f200df FAILED

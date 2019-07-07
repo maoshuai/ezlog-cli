@@ -1,0 +1,32 @@
+
+
+
+
+runTestUnderDir()
+{
+	# 传入测试类的根目录
+	local testDir=$1
+
+	# 此脚本调用test.d目录下面的所有.test结尾的shunit2测试案例
+
+	local testFiles="`find $testDir -name "*.test" -type f `"
+	local totalTestNum=`find $testDir -name "*.test" -type f | wc -l`
+	totalTestNum=`echo $totalTestNum`
+
+	echo "Begin to run Test File in $testDir"
+	echo "Total test file num: $totalTestNum"
+
+	local testSeq=1
+
+	for testFile in `find $testDir -name "*.test" -type f `;do
+		echo "running ($testSeq/$totalTestNum) : $testFile"
+		result="`$testFile`"
+		if [ $? -ne 0 ];then
+			echo "complete: FAIL"
+			echo "$result"
+		else
+			echo "complete: OK"
+		fi
+		let "testSeq=testSeq+1"
+	done
+}

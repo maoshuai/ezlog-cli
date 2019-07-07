@@ -1,0 +1,19 @@
+# 运行test.profile
+. $EZLOG_HOME/ezlog_test/ezlog_test.profile
+# 导入这个source文件
+. $EZLOG_TEST_BASE_SOURCE 
+
+anaDates="20160321 20160322 20160323"
+test_ezlog_health_api_getProcessNum()
+{
+	ezlog_health_api_getProcessNum  $EZLOG_HEALTH_ANALYZE_LOG_DIR/unarchive "$anaDates" 5000
+}
+
+
+test_ezlog_health_api_getCostDistributionByDate()
+{
+	ezlog_health_api_getCostDistributionByDate $EZLOG_HEALTH_ANALYZE_LOG_DIR/unarchive  "$anaDates"
+}
+
+# 运行shunit2测试
+. $shunit2

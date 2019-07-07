@@ -1,0 +1,15 @@
+# 运行test.profile
+. $EZLOG_HOME/ezlog_test/ezlog_test.profile
+# 导入这个source文件
+. $EZLOG_TEST_BASE_SOURCE "false"
+
+test_handle_option_v()
+{
+	local version="`$EZLOG_HOME/ezlog_wherelog/wherelog.d/wherelog_api.sh -v | head`" # 检测第一行输出必须包含wherelog version字样
+	local greped="`echo "$version" | grep "wherelog version"`"
+	assertNotNull "$greped"
+}
+
+
+# 运行shunit2测试
+. $shunit2

@@ -1,0 +1,195 @@
+###########
+# 完整的查看一个线程的日志，解决日志中出现换行导致的grep无法搜索的情况
+# author maoshuai
+# date 2015-06-10
+# version 0.0.1.snapshot
+###########
+
+full_grep()
+{
+
+	if [ $# -lt 4 ];then
+		echo "need 4 or more params"
+		exit 1
+	fi
+	# 第一参数传递日志线程号
+	local threadId="$1"
+	# 标记新的一行的开始
+	local newLinePattern="$2"
+	# 是否压缩文件
+	local _IS_LOG_ZIPPED="$3" # 0--不压缩，1--压缩
+	# 输出文件夹
+	local outputDir="$4"
+	# 接下来，都是要搜索的文件名
+	shift 4
+	logName=$*
+
+	# 用来识别logback日志开头
+	LOG_TITLE_PATTERN="$newLinePattern"
+
+	local fullgrepTempDir=$outputDir/fullgrep
+	mkdir -p $fullgrepTempDir
+
+
+
+	#
+	local grepedFile="$fullgrepTempDir/${fileName}_greped.txt"
+	# Linux版本的awk需要增加 --re-interval选项，才支持正则的次数匹配
+	osName=`get_os_type` &>/dev/null
+	if [ "$osName" = "Linux" ]; then
+		
+		if [ $_IS_LOG_ZIPPED -eq 0 ];then
+
+		awk --re-interval '
+		BEGIN{
+			isInThread = "no"
+		}
+
+		# 匹配thread
+		{
+			if($0~/'"$threadId"'/) # 判断是否在当前日志线程
+			{
+				print $0
+				isInThread="yes"
+			}
+			else if($0~/'"$LOG_TITLE_PATTERN"'/) # 是否开启了别的日志线程
+			{
+				isInThread="no"
+			}
+			else if(isInThread=="yes") #如果没有，那么就接着将日志打出
+			{
+				print $0
+			}	
+		}
+		' $logName
+		else
+			gunzip -c  $logName |
+
+			awk --re-interval '
+			BEGIN{
+				isInThread = "no"
+			}
+
+			# 匹配thread
+			{
+				if($0~/'"$threadId"'/) # 判断是否在当前日志线程
+				{
+					print $0
+					isInThread="yes"
+				}
+				else if($0~/'"$LOG_TITLE_PATTERN"'/) # 是否开启了别的日志线程
+				{
+					isInThread="no"
+				}
+				else if(isInThread=="yes") #如果没有，那么就接着将日志打出
+				{
+					print $0
+				}	
+			}
+			' 
+		fi
+
+
+	else
+
+
+		if [ $_IS_LOG_ZIPPED -eq 0 ];then
+
+		awk '
+		BEGIN{
+			isInThread = "no"
+		}
+
+		# 匹配thread
+		{
+			if($0~/'"$threadId"'/) # 判断是否在当前日志线程
+			{
+				print $0
+				isInThread="yes"
+			}
+			else if($0~/'"$LOG_TITLE_PATTERN"'/) # 是否开启了别的日志线程
+			{
+				isInThread="no"
+			}
+			else if(isInThread=="yes") #如果没有，那么就接着将日志打出
+			{
+				print $0
+			}	
+		}
+		' $logName 
+		else
+			gunzip -c  $logName |
+
+			awk '
+			BEGIN{
+				isInThread = "no"
+			}
+
+			# 匹配thread
+			{
+				if($0~/'"$threadId"'/) # 判断是否在当前日志线程
+				{
+					print $0
+					isInThread="yes"
+				}
+				else if($0~/'"$LOG_TITLE_PATTERN"'/) # 是否开启了别的日志线程
+				{
+					isInThread="no"
+				}
+				else if(isInThread=="yes") #如果没有，那么就接着将日志打出
+				{
+					print $0
+				}	
+			}
+			' 
+		fi
+
+
+
+	fi >$grepedFile
+
+	if [ -s $fileRight  ];then #右文件为空直接输出左文件grep的结果
+		cat $grepedFile
+	else # 否则要将右文件进行拼接处理
+		sfdsf=""
+	fi
+
+	
+}
+
+
+full_grep_with_cut()
+{
+	
+	# 如果awk有长度限制，需要使用cut结合paste命令处理一下
+	if [ x$WHERELOG_AWK_BYTE_LIMIT != x"" -a $WHERELOG_AWK_BYTE_LIMIT -gt 100 ];then
+		
+		export LC_CTYPE=C # 解决字符编码的问题
+
+		local wordLimit=""
+		let "wordLimit=WHERELOG_AWK_BYTE_LIMIT/2"
+		let "rightFileStartWord=wordLimit+1"
+		local fileName=`basename $logName`
+		# 先将源文件，按照wordLimit拆分成两个文件，并带有行号
+		local fileLeft="$fullgrepTempDir/${fileName}_leftPart"
+		local fileRight="$fullgrepTempDir/${fileName}_rightPart"
+
+		# 将文件拆分为两部分
+		if [ $_IS_LOG_ZIPPED -eq 0  ];then
+			cut -c "1-$wordLimit" $logName | cat -n  > $fileLeft
+			cut -c "${rightFileStartWord}-" $logName | cat -n  > $fileRight
+		else
+			gunzip -c $logName | cut -c "1-$wordLimit"  | cat -n  > $fileLeft
+			gunzip -c $logName | cut -c "${rightFileStartWord}-"  | cat -n  > $fileRight
+
+		fi
+
+		# 只对左文件进行grep
+		logName=$fileLeft
+		_IS_LOG_ZIPPED=0
+
+		
+	fi
+
+}
+

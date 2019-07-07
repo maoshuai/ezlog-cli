@@ -1,0 +1,451 @@
+# wherelog处理的核心代码，只被wherelog_api.sh source
+
+. $EZLOG_HOME/ezlog_wherelog/wherelog.d/ezlog_wherelog_init.source
+
+
+
+ # 日志规范化处理
+. $EZLOG_PROFILE_HOME/ezlog_wherelog/plugins/normalize/app_logs_normalize.source
+
+# 格式化JSON和XML
+. $EZLOG_PROFILE_HOME/ezlog_wherelog/plugins/format/prettyPrintXmlJson.source
+
+# 简化日志插件
+. $EZLOG_PROFILE_HOME/ezlog_wherelog/plugins/simplify/simplifyLog.source
+
+ # 增强型grep日志工具类
+. $EZLOG_WHERELOG_HOME/wherelog.d/fullgrep.source
+
+# 文件修改时间获取
+. $EZLOG_WHERELOG_HOME/wherelog.d/file_date_util.source
+
+# 获取keyword在索引文件里面的列号；
+# 索引文件里面前4列是固定的，从第5列才开始算自定义关键字，因此搜索第1个自定义关键字，需要转换到第5列的搜索
+getKeyWordColumn()
+{
+	local keyWordIndex=$1
+	let "keyWordColumn=$keyWordIndex + 4"
+	echo $keyWordColumn
+}
+
+
+
+
+# 获得日期之间的日志文件
+# 注意，永远包含非归档日子目录
+# 比如输入20160501 20160503
+getDateFoldsBetweenDate()
+{
+	local filePrefix=$1 # 前后都匹配
+	local dateFrom=$2
+	local dateTo=$3
+
+	dateFolds="`normalize_get_log_dir_by_date $dateFrom`/*${filePrefix}*"
+
+	if [ x$dateFrom != x$dateTo ];then # dateTo不一样的时候
+		local betweenDates=`getDateBetween $dateFrom $dateTo` # 获取dateFrom和dateTo之间的日期
+		for tmpDate in $betweenDates;do
+			local tempDateDir=`normalize_get_log_dir_by_date $tmpDate`
+			dateFolds="$dateFolds $tempDateDir/*${filePrefix}*"
+		done
+		# 添加上dateTo
+		local tempDateToDir=`normalize_get_log_dir_by_date $dateTo`
+		dateFolds="$dateFolds $tempDateToDir/*${filePrefix}*"
+	fi
+
+	# 最后在加上非归档日志目录
+	dateFolds="$dateFolds $EZLOG_APP_LOGS_HOME/*${filePrefix}*"
+
+	logDebug "dateFolds:" $dateFolds
+
+	echo "$dateFolds"
+}
+
+
+
+# 根据关键字列出匹配的Process记录列表
+wherelog_list_keyword()
+{
+	local keyWordColumn=$1 # 关键字在索引文件里面的第几列，就是物理上的列数
+	local keyWord=$2 # 关键字内容
+	local dateFrom=$3 # 查询起始日
+	local dateTo=$4 # 查询终止日
+	local getMatchNumOnly=$5 # 是否仅仅统计匹配的数目
+	logInfo "begin to search by keyWord $keyWord from $dateFrom to $dateTo on cloumn $keyWordColumn"
+
+	
+	
+	# 获得日期期间的索引文件，注意永远包含日志根目录的文件，所以在最后要通过日期再做一次过滤
+	local dateFolds=`getDateFoldsBetweenDate "$WHERELOG_INDEX_FILE" "$dateFrom" "$dateTo"`
+
+	# 如果是-1，代表全列搜索
+	if [ $keyWordColumn -eq -1 ];then
+		(
+		local indexFile=""
+		for indexFile in `echo "$dateFolds" `;do
+			normalize_index_file $indexFile
+		done
+		) | 
+		grep "$keyWord" 
+
+	# 否则，精确搜索指定的列
+	else
+		# 先规范化这些日志，由于normalize_index_file一次只能处理一个文件，所以做了一个for循环
+		(
+			local indexFile=""
+			for indexFile in `echo "$dateFolds" `;do
+				normalize_index_file $indexFile
+			done
+			) | 
+		grep "$keyWord" |
+		(
+			if [ x"$getMatchNumOnly" = x"true" ];then
+				local matchedNum=`awk -v "awk_keyWord_column=$keyWordColumn" -v "awk_keyWord=$keyWord" -v "awk_dateFrom=$dateFrom" -v "awk_dateTo=$dateTo" '
+				{
+					dateNum=$1;
+					gsub(/-/, "", dateNum);
+
+					if(match($awk_keyWord_column, awk_keyWord) && dateNum>=awk_dateFrom && dateNum<=awk_dateTo) # 改列包含关键字，则输出
+					{
+						print (1)
+					}
+				}' | wc -l `
+				echo $matchedNum
+			else
+				awk -v "awk_keyWord_column=$keyWordColumn" -v "awk_keyWord=$keyWord"  -v "awk_dateFrom=$dateFrom" -v "awk_dateTo=$dateTo"  '
+				{ 
+					dateNum=$1;
+					gsub(/-/, "", dateNum);
+
+					if(match($awk_keyWord_column, awk_keyWord) && dateNum>=awk_dateFrom && dateNum<=awk_dateTo ) # 该列包含关键字，则输出
+					{
+						print ($0)
+					}
+
+				}' 
+
+			fi
+		 )
+
+	fi
+}
+
+
+# 根据日志唯一id，获取所有日志文件列表
+wherelog_fetch_log_files_by_logUniqId()
+{
+	local logUniqId=$1
+	local dateFrom=$2
+	local dateTo=$3
+	local usingCache=$4 # 存在上一次运行的缓存结果，是否读取缓存,true--读取，false--不读取
+	local baseDir=$5 # 是否重新定义输出的根目录
+	logInfo "begin to fetech app logs by id $logUniqId from $dateFrom to $dateTo"
+
+	# 首先观察索引文件里面是否存在
+
+	local matchedNum=`wherelog_list_keyword 3 $logUniqId $dateFrom $dateTo "true"`
+	if [ $matchedNum -eq 0 ];then
+		myEchoError "No process found by id: $logUniqId from $dateFrom to $dateTo"
+	elif [ $matchedNum -gt 1 ];then
+		wherelog_list_keyword 3 $logUniqId $dateFrom $dateTo 
+		myEchoError "-------------"
+		myEchoError "Too manny(total $matchedNum) Processes matched by id: $logUniqId from $dateFrom to $dateTo :"
+	else # 只有一条的时候，才去做日志文件的获取操作
+
+		local indexRecord="`wherelog_list_keyword 3 $logUniqId $dateFrom $dateTo`" # 索引记录
+		logDebug "indexRecord=$indexRecord"
+
+		# 先将用户输入的唯一id，转换为日志里的完整id
+		local fullLogUniqId=`echo $indexRecord | awk '{print $3}' `
+		logInfo "fullLogUniqId=$fullLogUniqId"
+		if [ x"$baseDir" = x"" ];then # baseDir为空，则使用默认的配置
+			baseDir=$EZLOG_OUTPUT_BASE_DIR/$WHERELOG_OUTPUT_RELATIVE_PATH
+		fi
+		# wherelog 格式化输出的目录
+		local outputDir=$baseDir/$fullLogUniqId
+
+
+		# 如果存在缓存，则直接输出
+		if [ x"$usingCache" = x"true" -a -e $outputDir/.ok -a -e $outputDir/.report.txt ];then
+			logDebug "read from cache: $outputDir/.report.txt"
+			cat $outputDir/.report.txt
+		else
+			# 清空缓存
+			_wherelog_clean_cache_fold $outputDir
+
+			# process的消耗的毫秒数
+			local threadElapseMilSec=`echo $indexRecord | awk '{print $4}' `
+			# 算出秒数，先上取整。因为实际耗时是要比记录的长，所以向上取整是合理的，同时加上一个宽限，已充分长的时间确保，这个时间肯定是比交易的开始时间早
+			let "threadElapseSecond=(threadElapseMilSec + $WHERELOG_GRACE_TIME)/1000" # 一个宽限
+			# process的开始时间戳
+			local processEndTime=`echo $indexRecord | awk '{print $2}' | awk -F, '{print $1}'` #TODO _wherelog_get_begin_end_time_from_index_file
+			# 交易的开始时间(估计值)
+			local processBeginTimeEstimate=`subTime $processEndTime $threadElapseSecond`
+
+			# 日志所在的日期
+			local logDate=`echo $indexRecord | awk '{print $1}' | sed "s/-//g" `
+
+			logDebug "logDate=$logDate, processBeginTimeEstimate=$processBeginTimeEstimate, processEndTime=$processEndTime, threadElapseMilSec=$threadElapseMilSec, fullLogUniqId=$fullLogUniqId"
+
+			# 输出唯一编号
+			_printReportMessage  $outputDir "1. Log uniq id:  $fullLogUniqId"
+			
+			# 输出业务要素（调用自定义接口）
+			_printReportMessage  $outputDir "2. Business info:"
+			normalize_print_businessInfo "$indexRecord"
+
+			_printReportMessage  $outputDir "3. Time :"
+			_printReportMessage  $outputDir "      TIMESTAMP(END):    `echo "$indexRecord" | awk '{print $1 , $2}' `"
+			_printReportMessage  $outputDir "      COST(ms):          $threadElapseMilSec"
+			_printReportMessage  $outputDir "4. Original logs:"
+			# 获取candidate日志
+
+			local filePattern=""
+			local realFiles=""
+			for filePattern in $EZLOG_APP_LOG_FILES;do
+				# 首先根据时间戳大致确定候选文件
+				local candidateFiles="`_fetchCandidateLogByTime "$filePattern" "$fullLogUniqId" "$processBeginTimeEstimate" "$processEndTime" "$logDate"`"
+				logDebug "candidateFiles by time: $candidateFiles"
+				# 在对文件进行grep，确定这个日志文件确实包含需要的线程号
+				local realFile=""
+				for realFile in $candidateFiles;do
+					local compressType="`normalize_get_file_compress_type "$realFile"`"
+					local findLines=0
+					if [ x"GZ" = x"$compressType" ];then
+						findLines="`zgrep -Fc "$fullLogUniqId" $realFile`"				
+					else
+						findLines="`grep -Fc "$fullLogUniqId" $realFile`"	
+					fi
+					if [ $findLines -gt 0 ];then
+						_printReportMessage $outputDir "      $realFile"
+						realFiles="$realFiles $realFile"
+					else
+						logDebug "No lines found in : $realFile"
+					fi
+				done
+			done
+
+			_printReportMessage  $outputDir "5. Filtered logs [ONLY 1 thread]:"
+			_printReportMessage  $outputDir "      $outputDir/"
+
+			# 对找到的日志文件，进行fullgrep
+			local grepFile=""
+			
+			for grepFile in $realFiles;do # 注意这个地方要按时间排序 TODO
+				logDebug "begin to grep :$grepFile"
+				local isCompressed="`normalize_get_file_compress_type "$grepFile"`"
+				if [ x"GZ" = x"$isCompressed" ];then
+					isCompressed=1
+				else
+					isCompressed=0
+				fi
+
+				# 看每个文件归属的pattern，主要是处理多个文件的问题
+				for filePattern in $EZLOG_APP_LOG_FILES;do
+					local grepFileName=`basename $grepFile`
+					local grepedCount="`echo $grepFileName | fgrep -c "$filePattern"`"  # TODO 没有考虑到文件路径里面包含模式的情况, 多个文件，可能会打印多次
+					if [ $grepedCount -gt 0 ];then # 存在该文件模式的原始文件
+						if [ ! -d $outputDir ];then
+							mkdir -p $outputDir
+						fi
+						
+						full_grep "$fullLogUniqId" "$WHERELOG_APP_LOG_TITLE_PATTERN" $isCompressed $outputDir $grepFile >> $outputDir/$filePattern
+						_printReportMessage $outputDir "      $outputDir/$filePattern"
+					fi
+
+				done
+			done
+
+			simplifyLogs $outputDir
+
+			# 对目录下的日志，进行格式化
+			if [ x$_formatLog = x"true" ];then
+				formatLogs  $outputDir
+			fi
+
+
+
+		
+			# 标记完成
+			if [ -d $outputDir ];then
+				touch $outputDir/.ok
+			fi
+		fi
+
+	fi
+}
+
+
+
+
+# 根据文件修改时间获取候选日志文件
+_wherelog_get_candidate_log_files_by_modify_date()
+{
+	local keyWord=$1 # 搜索关键字
+	local logDate=$2 # 限定日期
+	local startTime=$3
+	local endTie=$4
+	local filePattern=$5
+
+
+
+}
+
+# 清空缓存目录
+_wherelog_clean_cache_fold()
+{
+	local cacheDir=$1
+	if [ -d $cacheDir ];then
+		find $cacheDir -type f | xargs rm -rf 
+	fi
+}
+
+
+
+# 根据thread id获取交易的起始时间
+# TODO 暂时只是获取了对应的索引文件
+_wherelog_get_begin_end_time_from_index_file()
+{
+	local primaryKey=$1 # 索引文件中的主键，一般是Process的 request id
+	local knownDate=$2 # 如果事先能判断出来日期，就传入
+
+	local dateFolds=""
+
+	# 首先判断索引文件在哪里
+	if [ x"$knownDate" = "x" ];then # 如果没有传入具体的日期，就搜索所有的索引文件
+		local today=`getCurrentDate`
+		let "logDaysMinus=0-$EZLOG_APP_LOG_KEEP_DAYS"
+		local logsStartDate=`dateCal $today $logDaysMinus` # 最早的日志日期
+		dateFolds=`getDateFoldsBetweenDate "*${WHERELOG_INDEX_FILE}*" "$logsStartDate" "$today"`
+
+		for tempDateDir in $dateFolds ;do
+			if [ -e $tempDateDir ];then
+				echo $tempDateDir
+			fi
+		done
+
+	else
+		dateFolds=`getDateFoldsBetweenDate "*${WHERELOG_INDEX_FILE}*" "$knownDate"`
+	fi
+
+}
+
+
+# 将日志文件转换为标准输出
+# 目的是：统一非压缩文件和压缩文件的处理方案
+# 输入：文件名列表
+_wherelog_convert_to_stdout()
+{
+	local files="$*"
+	for tempFile in $files;do
+		if [ -f $tempFile ];then
+			fileCompressType=`normalize_get_file_compress_type $tempFile`
+			if [ "xGZ" = "x$fileCompressType" ];then
+				gunzip -c $tempFile
+			else
+				cat $tempFile
+			fi
+		else
+			logWarn "$tempFile not found wheren convert to stdout"
+		fi
+	done
+
+}
+
+
+
+# 根据时间戳，判断可能存在该线程号的日志
+_fetchCandidateLogByTime()
+{
+	local log_pattern="$1" # 日志的文件名匹配
+	local fullLogUniqId="$2"
+	local processBeginTimeEstimate="$3"
+	local processEndTime="$4"
+	local logDate="$5"
+
+	# 这一天内符合这个模式的所有文件，但不一定都存在
+	local allAppLogs=`getDateFoldsBetweenDate "${log_pattern}" "$logDate" "$logDate"`
+
+	logDebug "allAppLogs=$allAppLogs"
+	
+	
+	# 没找到该模式的文件，则跳过
+	if [ "x" = "x$allAppLogs" ];then
+		logDebug "date log dir is empty"
+	fi
+
+	
+	# 将要搜索的日期混入列表进行排序
+	(echo $processEndTime "00000000000000000002" # 标记日志的结束
+		echo $processBeginTimeEstimate "00000000000000000001" # 标记日志开始时间
+	for fileName in $allAppLogs;do  # fileName like /home/bitsadm/bits_logs/BITS_LOG.txt
+		if [ -e $fileName ];then
+			echo `getLogModifyTime $fileName $logDate` $fileName  # get lastModified time:　11:11:17
+		else
+			logDebug "allAppLogs not found, skip: $fileName"
+		fi
+	done) | sort -nk 1 | # we get list like this:
+	# 13:15:59 /home/bitsadm/bits_logs/20150602/BITS_LOG.txt.3 -- 			foundBegin=no foundEnd=no 
+	# 13:20:00 00000000000000000001    ----这里是打日志的开始时间 -- 			foundBegin=yes foundEnd=no
+	# 13:20:02 /home/bitsadm/bits_logs/20150602/BITS_LOG.txt.4 --目标潜在日志 foundBegin=yes foundEnd=no 
+	# 13:23:01 00000000000000000002    ----这里是打日志的结束时间 -- 			foundBegin=no foundEnd=yes
+	# 13:23:50 /home/bitsadm/bits_logs/20150602/BITS_LOG.txt.5 --目标潜在日志 foundBegin=no foundEnd=no
+	# 13:37:48 /home/bitsadm/bits_logs/20150602/BITS_LOG.txt.6
+
+	# 找到修改日期第一大于或等于processEndTime的文件
+	# 13:23:50 /home/bitsadm/bits_logs/20150602/BITS_LOG.txt.5
+	awk '
+	BEGIN{foundEnd="no"
+			foundBegin="no"
+		}
+	 foundBegin=="yes"||foundEnd=="yes"{
+	 	print $0;
+	 	foundEnd="no"
+	}
+	 /00000000000000000001/{foundBegin="yes"}
+	 /00000000000000000002/{foundEnd="yes";foundBegin="no"} ' |
+
+	 grep -v "00000000000000000002" | # 00000000000000000002 会被包含进来
+
+	# 拿出第一列之后的路径名
+	# /home/bitsadm/bits_logs/20150602/BITS_LOG.txt.5
+	awk '{x=2;while(x<=NF){printf "%s ", $x;x++;}printf "\n"}'
+
+
+}
+
+
+# 将wherelog的输出显示并备份到.report.txt文件，做下一次缓存的内容显示
+_printReportMessage()
+{
+	local outputDir="$1"
+	shift 1
+	myEcho "$*" 
+	if [ ! -d $outputDir ];then
+		mkdir -p $outputDir
+	fi
+	echo "$*" >> $outputDir/.report.txt
+}
+
+
+
+
+# 获取wherelog的版本信息
+wherelog_get_verison()
+{
+	local version=`head -n 1  $EZLOG_WHERELOG_HOME/wherelog.d/_meta/version.txt` # 版本号
+	local buildDate=`head -n 1  $EZLOG_HOME/ezlog_common/_meta/ezlog_build_time.txt` # 构建时间
+	myEcho "wherelog version $version"
+	myEcho "build $buildDate"
+	myEcho "using profile: $EZLOG_PROFILE_HOME"
+	myEcho "contributors: "
+	cat $EZLOG_WHERELOG_HOME/wherelog.d/_meta/contributors.txt
+}
+
+
+
+
+
+
+
+

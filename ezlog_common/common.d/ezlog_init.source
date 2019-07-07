@@ -1,0 +1,150 @@
+# 初始化ezlog，在每个可能被直接调用的shell开头source
+
+
+_ezlog_init()
+{
+	if [ x${__is_ezlog_init_called} = x"" ];then # __is_ezlog_init_called 控制这个文件，只能被有效的source一次
+
+		_export_ezlog_env
+		_ezlog_validate_installation
+
+		_ezlog_load_profile
+
+		_ezlog_load_config
+
+		_ezlog_common_source # 将common下面的.source全部加载
+		
+		_ezlog_init_complete
+
+	else
+		logDebug "_ezlog_init is called before."
+	fi
+	
+}
+
+# TODO 这一步要重新考虑一下
+_export_ezlog_env()
+{
+	# 按照约定，先看是否配置了EZLOG_HOME变量，如果没有则设置为默认EZLOG_HOME
+	if [ x$EZLOG_HOME = "x" ];then
+		export EZLOG_HOME=~/ezlog
+	fi
+
+	# EZLOG_WHERELOG的根目录
+	if [ x$EZLOG_WHERELOG_HOME = "x" ];then
+		export EZLOG_WHERELOG_HOME=$EZLOG_HOME/ezlog_wherelog
+	fi
+
+
+
+}
+
+
+# ezlog的安装情况校验
+# 如果校验失败，则exit
+_ezlog_validate_installation()
+{
+	# 校验EZLOG_HOME环境变量是否与实际相符
+	if [ ! -d $EZLOG_HOME ];then
+		echo "ezlog is not installed at EZLOG_HOME($EZLOG_HOME), please check! " >&2
+		exit 1
+	fi
+
+	# 校验必选组件ezlog_common
+	if [ ! -d $EZLOG_HOME/ezlog_common ];then
+		echo "ezlog basic component 'ezlog_common' is not installed at EZLOG_HOME($EZLOG_HOME), please check! " >&2
+		exit 1
+	fi
+
+	# # 必须有配置文件ezlog.conf
+	# if [ ! -f $EZLOG_HOME/ezlog.conf ];then
+	# 	echo "No global ezlog.conf found at ($EZLOG_HOME), please check! " >&2
+	# 	exit 1
+	# fi
+
+}
+
+
+_ezlog_load_profile()
+{
+
+
+	# 先加载全局profile
+	. $EZLOG_HOME/ezlog.profile
+	# 如果有用户级别的profile，则加载用户级别的profile
+	if [ -f ~/.ezlog.profile ];then
+		. ~/.ezlog.profile
+	fi
+
+	# 检查是一个合法的profile目录
+	if [ ! -f $EZLOG_PROFILE_HOME/ezlog.conf ];then
+		echo "Not a ezlog profile, please check:" >&2
+		echo "$EZLOG_PROFILE_HOME" >&2
+		exit 1
+	fi
+}
+
+# 载入ezlog配置文件
+_ezlog_load_config()
+{
+	
+	# 如果没有配置EZLOG_PROFILE_HOME，则使用默认的profile配置
+	# if [ x"" = x"$EZLOG_PROFILE_HOME" ];then
+	# 	export EZLOG_PROFILE_HOME=$EZLOG_HOME/builtin_profiles/default_profile
+	# fi
+
+	# 到profile目录下加载ezlog.conf
+	. $EZLOG_PROFILE_HOME/ezlog.conf
+
+	if [ x$EZLOG_APP_LOGS_HOME = x"" ];then
+		echo "EZLOG_APP_LOGS_HOME is null, please check ezlog.conf."
+		exit 1
+	fi
+
+	if [ ! -d $EZLOG_APP_LOGS_HOME ];then
+		echo "EZLOG_APP_LOGS_HOME: $EZLOG_APP_LOGS_HOME doesn't exist, please check ezlog.conf."
+		exit 1
+	fi
+	# # 用户目录下是否有配置文件，如果有的话，则也载入
+	# # TODO 增加版本号的控制
+	# if [ -f ~/.ezlog.conf ];then
+	# 	. ~/.ezlog.conf
+	# fi
+}
+
+# 默认将common下的代码都source了
+_ezlog_common_source()
+{
+	. $EZLOG_HOME/ezlog_common/common.d/os.source
+	. $EZLOG_HOME/ezlog_common/common.d/date_util.source
+	. $EZLOG_HOME/ezlog_common/common.d/common_util.source
+
+	# 如果日志配置为空，则使用默认的日志配置文件
+	if [ x"$EZLOG_SIMPLOG4SH_CFG" = "x" ];then
+		. $EZLOG_HOME/ezlog_common/common.d/simpleLog4sh.source $EZLOG_HOME/ezlog_common/common.d/simpleLog4sh.cfg
+	else
+		. $EZLOG_HOME/ezlog_common/common.d/simpleLog4sh.source $EZLOG_SIMPLOG4SH_CFG
+	fi
+
+	# 至此日志组件可以使用了，打一句日志吧
+	logDebug "simpleLog4sh is loaded in ezlog."
+
+}
+
+_ezlog_init_complete()
+{
+		logInfo "ezlog initialization completed." # _ezlog_common_source完成后，可以使用log方法了
+		
+		# log出一些常用的配置信息
+		logDebug "EZLOG_HOME=$EZLOG_HOME"
+		logDebug "EZLOG_APP_LOGS_HOME=$EZLOG_APP_LOGS_HOME"
+		logDebug "EZLOG_OUTPUT_BASE_DIR=$EZLOG_OUTPUT_BASE_DIR"
+		logDebug "EZLOG_JAVA_HOME=$EZLOG_JAVA_HOME"
+		__is_ezlog_init_called="true"
+}
+
+
+
+
+# 直接调用
+_ezlog_init

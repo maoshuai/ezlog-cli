@@ -1,0 +1,191 @@
+# 将wherelog_api.sh 的接口，封装为更易于使用的选项
+# 比如根据正则表达式匹配，自动确定搜索类型等，减少用户输入的复杂度
+
+
+
+# 此方法必须实现
+# 根据输入的关键字，自动判断在索引文件中的索引
+# 如无法判断，可直接返回空白字符串
+getKeywordIndexFromKeyword()
+{
+	local keyword=$1
+	local keywordIndex=""
+	local keywordType=`_parseKeyWord "$keyword"`
+	if [ $keywordType -gt 0 ];then # 大于0，说明输入的是合法的关键字
+		if [ $keywordType -le 10 ];then # 小于10 说明是uniq id
+			keywordIndex="0" # 代表查找的是uniq id
+		elif [ $keywordType -eq 21 ];then # 输入的是业务编号
+			keywordIndex="3"
+		elif [ $keywordType -eq 22 ];then # 输入的EVENT_NO
+			keywordIndex="4"
+		elif [ $keywordType -eq 23 ];then # 输入的柜员号
+			keywordIndex="6"
+		elif [ $keywordType -eq 24 ];then # 输入的交易码
+			keywordIndex="5"
+		else
+			logInfo "cannot get keywordIndex form keyword: $keyword"
+		fi
+	fi
+	echo "$keywordIndex"
+
+
+}
+
+
+# 此方法必须实现
+# 根据输入的关键字，自动判断日志的日期
+# 如无法判断，可直接返回空白字符串
+getKeywordDateFromKeyword()
+{
+	local inputKeyWord=$1
+	local keywordType=`_parseKeyWord "$inputKeyWord"`
+	local _date=""
+
+	# 输入的uniq id类似：20150609133829415 或 20150609133829415.550576，提取前面8位作为日期
+	if [ $keywordType -eq 2 -o $keywordType -eq 3 ];then
+		_date=`echo $inputKeyWord| cut -c 1-8`
+	# 输入的uniq id类似：4433802-20150609133829415.550576 或4433802-20150609133829415
+	elif [ $keywordType -eq 4 -o $keywordType -eq 5  ];then
+		_date=`echo $inputKeyWord| cut -c 9-16`
+	fi
+
+	echo "$_date"
+
+}
+
+
+
+# 打印wherelog用法提示，在脚本使用错误的时候，会调用
+# 不同的profile里面，可以针对情况进行实现
+print_wherelog_usage()
+{
+	# 直接使用默认的wherelog usage:
+	# default_print_wherelog_usage "$@"
+
+	myEcho ""
+	# 前3行打印版本号和构建日期和载入的profile
+	# wherelog_get_verison | head -n 3
+
+	# 
+	myEcho ""
+	myEcho "------------USAGE-------------"
+	myEcho "1.Syntax: "
+	myEcho "   $shellName [-options] (log_thread_id|EVENT_NO|BUSINESS_ID|USER_CODE) [date]"
+	myEcho
+	myEcho "2.Examples: "
+	myEcho "   1).By log thread id:   "
+	myEcho "       BITS full log thread id is like: 4432849-20150802052013145.201314"
+	myEcho "       Using part of the id is OK: "
+	myEcho "       $shellName 201314            # Note: only search in logs TODAY"
+	myEcho "       $shellName 20150802052013145"
+	myEcho "       $shellName 20150802052013145.201314"
+	myEcho "   2).By EVENT_NO"
+	myEcho "       $shellName 36f70da4f649c93a0007             # search today logs"
+	myEcho "       $shellName 36f70da4f649c93a0007 20150802    # search 20150802 logs"
+	myEcho "       $shellName 36f70da4f649c93a0007 ALL         # search ALL logs"
+	myEcho "   3).By BUSINESS_ID"
+	myEcho "       $shellName LCZC443201500154"
+	myEcho "       $shellName LCZC443201500154 20150802    # search 20150802 logs"
+	myEcho "       $shellName LCZC443201500154 ALL         # search ALL logs"
+	myEcho "   4).By USER_CODE"
+	myEcho "       $shellName 4433802"
+	myEcho "       $shellName 4433802 20150802    # search 20150802 logs"
+	myEcho "       $shellName 4433802 ALL         # search ALL logs"
+	myEcho
+}
+
+
+
+
+
+# 解析输入的关键字
+# 1-4共四种类型
+# -1代表不合法的线程号
+_parseKeyWord()
+{	
+	if [ $# -ne 1 ];then
+		throw "Need 1 param"
+	fi
+
+
+
+	local threadId=$1
+
+	# 输入的为空
+	if [ x$threadId = x"" ];then
+		echo -1
+		return
+	fi
+
+	# 类型1： 6位数字型随机数线程号，比如：550576
+	local flag=`regex_test $threadId "^[0-9]{6}$"` 
+	if [ $flag -eq 1 ];then
+		echo 1
+		return 
+	fi
+	
+	# 类型2：最多17位，以日期型：20150609133829415
+	flag=`regex_test $threadId "^(19|20)[0-9]{2}[0-1]{1}[0-9]{1}[0-3][0-9]{0,11}$"`
+	if [ $flag -eq 1 ];then
+		echo 2
+		return
+	fi
+	
+	# 类型3： 最多17位日期+6为随机数： 20150609133829415.550576
+	flag=`regex_test $threadId "^(19|20)[0-9]{2}[0-1]{1}[0-9]{1}[0-3][0-9]{0,11}\.[0-9]{6}$"`
+	if [ $flag -eq 1 ];then
+		echo 3
+		return
+	fi
+
+	# 类型4：完整线程号：4433802-20150609133829415.550576
+	flag=`regex_test $threadId "^([0-9]{7}|nologin)\-(19|20)[0-9]{2}[0-1]{1}[0-9]{1}[0-3][0-9]{0,11}\.[0-9]{6}$"`
+	if [ $flag -eq 1 ];then
+		echo 4
+		return
+	fi
+
+	# 类型5：7位柜员+最多17位日期：4433802-20150609133829415
+	flag=`regex_test $threadId "^([0-9]{7}|nologin)\-(19|20)[0-9]{2}[0-1]{1}[0-9]{1}[0-3][0-9]{0,11}$"`
+	if [ $flag -eq 1 ];then
+		echo 5
+		return
+	fi
+
+
+	# 类型21：业务编号 LCZC443201500154
+	flag=`regex_test $threadId "^[A-Z]{2}[A-Z0-9]{2}[0-9]{12}$"`
+	if [ $flag -eq 1 ];then
+		echo 21
+		return
+	fi
+
+
+	# 类型22：EVENT_NO
+	# 36f70da4f649c93a0007 或IBP开头的移植数据IBPLCZC0282013007080
+	flag=`regex_test $threadId "^([0-9a-z]{20}|IBP[A-Z]{2}[A-Z0-9]{2}[0-9]{12,})$"`
+	if [ $flag -eq 1 ];then
+		echo 22
+		return
+	fi
+
+	# 类型23：柜员号	
+	flag=`regex_test $threadId "^([0-9]{7}|nologin)$"`
+	if [ $flag -eq 1 ];then
+		echo 23
+		return
+	fi
+
+	# 类型24：交易码
+	flag=`regex_test $threadId "^BITS[A-Z0-9]{6}$"`
+	if [ $flag -eq 1 ];then
+		echo 24
+		return
+	fi
+
+
+	echo -1
+	return
+
+
+}

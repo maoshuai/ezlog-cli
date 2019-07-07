@@ -1,0 +1,200 @@
+
+ezlog_health_main()
+{
+	autoGetEzlogHome
+	
+	# ezlog初始化操作，具体路径相对于当前脚本路径设置
+	. $EZLOG_HOME/ezlog_health/ezlog_health.d/ezlog_health_init.source # ezlog_health的公共初始化（包括载入ezlog_common，加载ezlog_health.conf）
+
+	. $EZLOG_HOME/ezlog_health/ezlog_health.d/pre_process.source
+	. $EZLOG_HOME/ezlog_health/ezlog_health.d/ezlog_health_api.source
+
+
+	if [ x`get_os_type` = "xDarwin" ];then
+		unset OPTIND # 调用getopts最好先重置一下
+	fi
+	while getopts "zs:v" arg
+	do
+		case $arg in 
+			z) # 是否要解压
+				_need_un_archive="true"
+			;;
+			s) # server名
+				_serverName=$OPTARG
+			;;
+			v) # 显示版本信息
+				ezlog_health_api_get_verison
+				exit 0
+			;;
+			?)
+				
+			;;
+		esac
+
+	done
+
+	shift $(($OPTIND - 1))
+
+	
+
+	ezlog_analyze_log_dir=$EZLOG_HEALTH_ANALYZE_LOG_DIR
+
+	# 如果指定了server名，则到server名对应的子目录读取待分析日志
+	if [ x"$_serverName" != "x" ];then
+		ezlog_analyze_log_dir=$ezlog_analyze_log_dir/$_serverName
+	fi
+
+	ezlog_analyze_log_dir_archive=$ezlog_analyze_log_dir/archive
+	ezlog_analyze_log_dir_unarchive=$ezlog_analyze_log_dir/unarchive
+
+	
+
+	# 参数输入，参数校验
+	anaDateFrom=$1
+	anaDateTo=$2
+
+	if [ $# -ne 2 ];then
+		echo "need 2 param!" >&2
+		exit 1
+	fi
+
+	if [ "false" = `isEightDigitDate $anaDateFrom`  -o "false" = `isEightDigitDate $anaDateTo` ];then
+		echo "param should be eight digit date" >&2
+		exit 1
+	fi
+
+	if [ $anaDateFrom -gt $anaDateTo ];then
+		echo "first date can not be later than the scecond one." >&2
+		exit 1
+	fi
+
+	# 根据anaDateFrom和anaDateTo获取要分析的日期
+	anaDates="`getDateSeq $anaDateFrom $anaDateTo`"
+
+
+	# 需要先解压要分析的ezlog日志
+	if [ x$_need_un_archive = x"true" ];then
+		for tmpDate in $anaDates;do
+			gzFileName=`ls $ezlog_analyze_log_dir_archive/anamain_${tmpDate}*[0-9].tar.gz 2>/dev/null`
+			if [ x"$gzFileName" = "x" ];then
+				echo "ezlog on $tmpDate not found! " >&2
+			else
+				echo "unarchive ezlog on $tmpDate: $gzFileName ..."
+				unarchive $ezlog_analyze_log_dir_archive $ezlog_analyze_log_dir_unarchive $tmpDate
+			fi
+		done
+		echo "unarchive done, Please run without -z to get report"
+		exit 0
+	fi
+
+
+
+	#本次分析的输出目录
+	reportDir=$EZLOG_HEALTH_REPORT_HOME/`date +%Y%m%d%H%M%S`"."$RANDOM
+	mkdir -p $reportDir
+	echo "report generated at: $reportDir"
+
+
+
+
+	# 开始分析
+
+	# TODO 暂不校验ezlog解压的日志目录是否都存在
+
+	# 统计一段时间内，每天的Process数量
+	echo "1.1 Process Num"
+	ezlog_health_api_getProcessNum $ezlog_analyze_log_dir_unarchive "$anaDates" $EZLOG_HEALTH_SLOW_PROCESS_TIME >> $reportDir/PROCESS_NUM.TXT
+
+	# 获取一段时间内，Process的耗时总排序
+	echo "1.2 Process Sort top $EZLOG_HEALTH_SLOW_PROCESS_MAX_NUM"
+	getProcessSort $ezlog_analyze_log_dir_unarchive "$anaDates" "$EZLOG_HEALTH_SLOW_PROCESS_MAX_NUM" >> $reportDir/PROCESS_SORT.TXT
+
+	# 2. Process总体耗时分布
+	echo "2.1 Process cost distribution(BY_DATE_All), LEVLES: $EZLOG_HEALTH_PROCESS_TIME_LEVELS"
+	for anaDate in $anaDates;do
+		getCostDistributionByDate $ezlog_analyze_log_dir_unarchive $anaDate "$EZLOG_HEALTH_PROCESS_TIME_LEVELS" >> $reportDir/PROCESS_COST_DIS_ALL_${anaDate}.TXT
+	done
+
+	echo "2.2 Process cost distribution(BY_DATE_Submit), LEVLES: $EZLOG_HEALTH_PROCESS_TIME_LEVELS"
+	for anaDate in $anaDates;do
+		getCostDistributionByDateForSubmit  $ezlog_analyze_log_dir_unarchive $anaDate " $EZLOG_HEALTH_PROCESS_TIME_LEVELS" >> $reportDir/PROCESS_COST_DIS_SUBMIT_${anaDate}.TXT
+	done
+
+	echo "2.3 Process cost distribution(BY_DATE_QueryList), LEVLES: $EZLOG_HEALTH_PROCESS_TIME_LEVELS"
+	for anaDate in $anaDates;do
+		getCostDistributionByDateForQueryList $ezlog_analyze_log_dir_unarchive $anaDate "$EZLOG_HEALTH_PROCESS_TIME_LEVELS" >> $reportDir/PROCESS_COST_DIS_QUERY_${anaDate}.TXT
+	done
+
+	echo "2.4 Process cost distribution(BY_DATE_Others), LEVLES: $EZLOG_HEALTH_PROCESS_TIME_LEVELS"
+	for anaDate in $anaDates;do
+		getCostDistributionByDateForOther  $ezlog_analyze_log_dir_unarchive $anaDate "$EZLOG_HEALTH_PROCESS_TIME_LEVELS" >> $reportDir/PROCESS_COST_DIS_OTHER_${anaDate}.TXT
+	done
+
+	# 分Process名，按日期区分的耗时分布
+	echo "2.5 Process cost distribution(BY_NAME_AND_DATE), LEVLES: $EZLOG_HEALTH_PROCESS_TIME_LEVELS"
+	for anaDate in $anaDates;do
+		echo "    PROCESS: $anaDate"
+		getCostDistributionByProcessNameAndDate  $ezlog_analyze_log_dir_unarchive $anaDate "$EZLOG_HEALTH_PROCESS_TIME_LEVELS" >> $reportDir/PROCESS_COST_DIS_BY_NAME_${anaDate}.TXT
+	done
+
+	# 分Process名，日期合并统计耗时分布
+	# echo "1.7 Process cost distribution(BY_NAME):"
+	# getCostDistributionByProcessName $ezlog_analyze_log_dir_unarchive "$anaDates" "$EZLOG_HEALTH_PROCESS_TIME_LEVELS" >> $reportDir/PROCESS_COST_DIS_BY_NAME.TXT
+
+
+
+
+
+	# 外系统接口，不区分接口名
+	echo "3.1 WEBSERVICE cost distribution(BY_DATE_All), LEVLES: $EZLOG_HEALTH_WEBSERVICE_TIME_LEVELS"
+	for anaDate in $anaDates;do
+		getWebServiceCostDistributionByDate $ezlog_analyze_log_dir_unarchive $anaDate "$EZLOG_HEALTH_WEBSERVICE_TIME_LEVELS" >> $reportDir/WEBSERVICE_COST_DIS_ALL_${anaDate}.TXT
+	done
+
+	echo "3.2 WEBSERVICE cost distribution(BY_NAME_AND_DATE), LEVLES: $EZLOG_HEALTH_WEBSERVICE_TIME_LEVELS"
+	for anaDate in $anaDates;do
+		echo "    WEBSERVICE: $anaDate"
+		getWebServiceCostDistributionByProcessNameAndDate  $ezlog_analyze_log_dir_unarchive $anaDate "$EZLOG_HEALTH_WEBSERVICE_TIME_LEVELS"  >> $reportDir/WEBSERVICE_COST_DIST_BY_NAME_${anaDate}.TXT
+	done
+
+
+	# 分Process名，日期合并统计耗时分布
+	# echo "3.3 WEBSERVICE cost distribution(BY_NAME):"
+	# getWebServiceCostDistributionByProcessName $ezlog_analyze_log_dir_unarchive "$anaDates" "$EZLOG_HEALTH_WEBSERVICE_TIME_LEVELS" >> $reportDir/WEBSERVICE_COST_DIST_BY_NAME.TXT
+
+
+
+	# SQL，对每天，混合所有，做分布统计
+	echo "3.1 SQL cost distribution(BY_DATE_All), LEVLES: $EZLOG_HEALTH_SQL_TIME_LEVELS"
+	for anaDate in $anaDates;do
+		getSqlCostDistributionByDate $ezlog_analyze_log_dir_unarchive $anaDate "$EZLOG_HEALTH_SQL_TIME_LEVELS" >> $reportDir/SQL_COST_DIS_ALL_${anaDate}.TXT
+	done
+
+	# SQL，对每天，按SQL名称进行分布统计
+	echo "3.1 SQL cost distribution(BY_NAME_AND_DATE), LEVLES: $EZLOG_HEALTH_SQL_TIME_LEVELS"
+	for anaDate in $anaDates;do
+		echo "    SQL: $anaDate"
+		getSqlCostDistributionByProcessNameAndDate  $ezlog_analyze_log_dir_unarchive $anaDate "$EZLOG_HEALTH_SQL_TIME_LEVELS"  >> $reportDir/SQL_COST_DIST_BY_NAME_${anaDate}.TXT
+	done
+
+
+	
+
+}
+
+# EZLOG_HOME变量最好是配置在.profile里，当然如果EZLOG_HOME实在找不到，则会通过这个方法自动获取
+# 这个方法在每一个入口shell执行，并且只能copy paste
+autoGetEzlogHome()
+{
+	if [ x"" = x"$EZLOG_HOME" ];then
+		currentDir=$( cd -P -- "$(dirname -- "$(command -v -- "$0")")" && pwd -P ) # 获取脚本运行的当前目录
+		cd $currentDir
+		cd ..
+		export EZLOG_HOME=`pwd`
+	fi
+}
+
+
+# 入口函数
+ezlog_health_main $*
+

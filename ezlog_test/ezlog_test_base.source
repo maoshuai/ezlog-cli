@@ -1,0 +1,25 @@
+# 所有test案例都要引用的基
+
+# 测试的根目录
+# export SHUNIT2_TEST_DIR=$deployDir/test.d
+
+# shunit2 执行文件
+export shunit2=$EZLOG_SHUNIT2_DIR/shunit2
+
+# 获取当前测试文件路径
+export EZLOG_CURRENT_TEST_DIR=$( cd -P -- "$(dirname -- "$(command -v -- "$0")")" && pwd -P )
+
+. $EZLOG_HOME/ezlog_test/ezlog_test.profile
+
+autoSource=$1
+if [ x$autoSource != x"false" ]; then # 是否自动导入
+
+	testFileName=${0##*/}
+	testFile=$EZLOG_CURRENT_TEST_DIR/$testFileName
+
+	# 根据测试文件，获取被测文件的路径
+	testFile=`echo $testFile | sed 's/test.d\///' | sed 's/\.test$//'`
+	# 导入被测文件
+	. $testFile
+fi
+

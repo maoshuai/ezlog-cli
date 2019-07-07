@@ -1,0 +1,47 @@
+# 这个层面的代码，不可引入环境变量
+. $EZLOG_HOME/ezlog_health/ezlog_health.d/ezlog_health_init.source
+. $EZLOG_HOME/ezlog_health/ezlog_health.d/ezlog_health_func.source
+
+# 获取Process Num信息
+ezlog_health_api_getProcessNum()
+{
+	local analyzeBaseDir="$1"
+	local anaDates="$2"
+	local slowTime="$3" # 缓慢交易的标准
+
+
+	for anaDate in $anaDates;do
+		slowNum=`getProcessNumByDate "$analyzeBaseDir" $anaDate $slowTime`
+		totalNum=`getProcessNumByDate "$analyzeBaseDir" $anaDate`
+
+		slowPercent=`echo $slowNum $totalNum | awk '{printf "%5.2f", $1*100/$2;}'`
+		echo "$anaDate $slowNum $totalNum $slowPercent"
+	done
+
+
+}
+
+
+
+
+ezlog_health_api_getCostDistributionByDate()
+{
+	local analyzeBaseDir="$1"
+	local anaDates="$2"
+	for anaDate in $anaDates;do
+		getCostDistributionByDate $analyzeBaseDir $anaDate
+	done
+}
+
+
+
+# 获取wherelog的版本信息
+ezlog_health_api_get_verison()
+{
+	local version=`head -n 1  $EZLOG_HOME/ezlog_health/ezlog_health.d/_meta/version.txt` # 版本号
+	local buildDate=`tail -n 1  $EZLOG_HOME/ezlog_health/ezlog_health.d/_meta/version.txt` # 构建时间
+	echo "ezlog_health version $version"
+	echo "build $buildDate"
+	echo "contributors: "
+	cat $EZLOG_HOME/ezlog_health/ezlog_health.d/_meta/contributors.txt
+}

@@ -1,0 +1,27 @@
+# 运行test.profile
+. $EZLOG_HOME/ezlog_test/ezlog_test.profile
+# 导入这个source文件
+. $EZLOG_TEST_BASE_SOURCE
+
+
+test_getLogModifyTime()
+{
+	# 在/tmp目录下面创建一个文件，并进行测试
+	local thisTime="`date "+%H_%M_%S"`"
+	local testFile="modiefy_test_file_$thisTime"
+	touch "/tmp/$testFile"
+
+	# 修改时间就应该是当前时间
+	local fileTime=`echo $thisTime | sed 's/_/:/g'`
+	
+
+	result=`getLogModifyTime "/tmp/$testFile"`
+
+	assertEquals $fileTime $result
+
+	# 清理掉这个文件
+	rm -rf "/tmp/$testFile"
+}
+
+# 运行shunit2测试
+. $shunit2

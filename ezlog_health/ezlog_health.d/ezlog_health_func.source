@@ -1,0 +1,517 @@
+. $EZLOG_HOME/ezlog_health/ezlog_health.d/ezlog_health_init.source
+
+. $EZLOG_HOME/ezlog_health/ezlog_health.d/pre_process.source
+
+# 获取某个日期的anamain的目录
+getAnamainDir()
+{
+	anamainHomeDir=$1
+	anaDate=$2
+
+	cd $anamainHomeDir
+	dirName=`ls -d "anamain_${anaDate}_"*`
+
+	if [ $? -ne 0 ];then
+		echo "Failed to get anamaindir"
+	fi
+	echo $anamainHomeDir/$dirName
+
+}
+
+# 获取Process总数
+getProcessNum()
+{
+	local anamainHomeDir=$1
+	local anaDate=$2
+	local costTime=$3 # 只统计大于等于此耗时的部分
+
+	local dateDir=`getAnamainDir $anamainHomeDir $anaDate`
+
+	local whole_view_dir=$dateDir/report_raw_analyze_data_whole_view/$anaDate
+
+	if [ x"$costTime" != "x" ];then
+		cat $whole_view_dir/TRANS_TIME.sort | awk '{
+
+			if ($4 != "null")
+				{
+					if($4 >= '"$costTime"' )
+					{
+						total+=1;
+
+					}
+
+				}
+			
+		}
+		END{
+			print total;
+		}
+		' 
+	else
+		wc -l $whole_view_dir/TRANS_TIME.sort | awk '{print $1}'
+	fi
+
+	
+}
+
+
+# 获取特定日期的交易数
+getProcessNumByDate()
+{
+	local anamainHomeDir=$1
+	local anaDate=$2
+	local costTime=$3 # 只统计大于等于此耗时的部分
+
+	local dateDir=`get_anamain_dir_by_date "$anamainHomeDir" $anaDate`
+
+	local whole_view_dir=$dateDir/report_raw_analyze_data_whole_view/$anaDate
+
+	if [ x"$costTime" != "x" ];then
+		cat $whole_view_dir/TRANS_TIME.sort | awk '{
+
+			if($4 >= '"$costTime"' && $4 != "null") # 优化一下，先判断$4是否是数字
+				{
+					total+=1;
+				}
+
+		}
+		END{
+			print total;
+		}
+		' 
+	else
+		wc -l $whole_view_dir/TRANS_TIME.sort | awk '{print $1}'
+	fi
+
+}
+
+
+
+
+# 获取耗时分布
+# TODO 此函数需要拆分优化
+# 参数 -s "2000,5000,15000,50000" -n 6 -t 4 /home/bitsadm/mao_s/xxx.sort
+getTimeDistributionByName()
+{
+
+	# 是否合并统计，如果是，则单独分开统计
+	# 1-是 0-否
+	isMergeStatistic=0;
+
+	if [ x`get_os_type` = "xDarwin" ];then
+		unset OPTIND # 调用getopts最好先重置一下
+	fi
+	while getopts "s:n:t:m" arg
+	do
+		case $arg in 
+			s) # 分布数组 代表分布时间点，比如"100 200 300 5000"
+				distribute_time_string=$OPTARG
+			;;
+			n) # 名称所在的列
+				index_name=$OPTARG
+			;;
+			t) # 耗时所在的列
+				index_cost_time=$OPTARG
+			;;
+			m) # 是否合并统计
+				isMergeStatistic=1
+			;;
+			
+			?)
+				exit 1
+
+			;;
+		esac
+
+	done
+
+	shift $(($OPTIND - 1))
+	trans_time_file_names="$*" # 要分析的文件
+
+	cat $trans_time_file_names | awk -v awk_index_name="$index_name" '{
+		if($awk_index_name ~ /^[0-9]+$/) # 对transTime错位的情况下进行过滤
+			{
+
+			}
+		else
+			{
+				print $0
+			}
+	}
+	'| awk \
+	-v awk_distribute_time_string="$distribute_time_string" \
+	-v awk_index_cost_time="$index_cost_time" \
+	-v awk_index_name="$index_name" \
+	-v awk_isMergeStatistic="$isMergeStatistic" \
+	'
+ 	# awk 函数定义 
+
+ 	# 获取数组长度
+	function getArrayLenght (array)
+	{
+		totalNum=0;
+		for (i in array)
+		{
+			totalNum+=1;
+		}
+		return totalNum;
+	}
+
+	# 二维数组根据坐标put值
+    function twoArray_put(array, index1, index2, value)
+    {
+
+    	index3=index1"#"index2;
+    	array[index3] = value;
+    }
+
+    # 二维数组根据坐标get值
+    function twoArray_get(array, index1, index2)
+    {
+    	index3=index1"#"index2;
+    	return array[index3];
+    }
+
+    # 将分布，按ProcessName打印
+    # dis_value_array，要求是一个递增数字，用逗号相隔的字符串，比如"100,200,500"
+    # 打印出来的是分别是：名称 总数 平均耗时 分布值 分布百分比
+    function printDis(dis_value_array, totalNumArray, totalCostArray, processName)
+    {
+    	printf "%-70s" ,processName;
+
+    	dis_length=getArrayLenght(DIS);
+
+    	# 打印总数和平均耗时
+    	totalNum = totalNumArray[processName];
+    	totalCostTime=totalCostArray[processName];
+		printf "%7d %10d %9.2f", totalNum, totalCostTime, totalCostTime/totalNum;
+
+    	# 打印分布
+    	for (i=1;i<=dis_length;i++)
+			{
+				value=twoArray_get(dis_value_array, processName, i);
+				if(value=="")
+					{
+						value=0;
+					}
+				printf  "%7d", value;
+			}
+		printf "%7d   ", twoArray_get(dis_value_array, processName, dis_length+1); 
+
+		# 打印百分比
+		for (i=1;i<=dis_length;i++)
+			{
+				value=twoArray_get(dis_value_array, processName, i)*100/totalNum;
+				if(value=="")
+					{
+						value=0;
+					}
+				printf  "%7.2f ", value;
+			}
+		printf "%7.2f\n", twoArray_get(dis_value_array, processName, dis_length+1)*100/totalNum; # 最后一个要换行
+
+    }
+
+
+
+
+
+
+BEGIN{
+
+	# 定义分布函数的区间
+
+	# 根据传入的字符串获取分布坐标，从1开始，比如传入"100,200,500"，则产生一个分布坐标DIS[1]=100, DIS[2]=200, DIS[3]=500
+	# 并且据此形成4列统计数值<=100, (100,200], (200,500], >500
+	split(awk_distribute_time_string, DIS, ",");
+
+	#分布数组的长度
+	dis_length=getArrayLenght(DIS);
+
+}
+
+
+
+
+
+
+
+# 对每一行进行叠加统计
+{
+	name=$awk_index_name
+	if(awk_isMergeStatistic==1)
+		{
+			name="MERGE_STATISTIC";
+		}
+	# array_total_num累加每个Process的发生次数，数组坐标是Process名
+	array_total_num[name] = array_total_num[name] + 1;
+	# array_total_cost_time累加每个Process的总耗时，数组坐标是Process名
+	array_total_cost_time[name] = array_total_cost_time[name] + $awk_index_cost_time;
+	
+	# array_distribute记录每个Process在每个分布区间的数量，以Process名和分布区间的序号做坐标
+	# 比最大值还大
+	if($awk_index_cost_time>DIS[dis_length]) 
+		{
+			oriValue=twoArray_get(array_distribute, name, dis_length+1);
+			twoArray_put(array_distribute, name, dis_length+1, oriValue+1)
+			
+		}
+	else
+		{
+			for (i=1;i<=dis_length;i++)
+			{
+				if($awk_index_cost_time<=DIS[i])
+				{
+					oriValue=twoArray_get(array_distribute, name, i);
+					twoArray_put(array_distribute, name, i, oriValue+1);
+					break; # 落在了这个区间
+				}
+			}
+		
+		}
+
+	
+
+}
+
+
+
+# 输出结果
+END{
+	# 输出标题
+
+	for(key in array_total_num)
+	{
+		
+		printDis(array_distribute, array_total_num, array_total_cost_time, key);
+	}	
+
+}' | sort
+
+
+
+}
+
+
+
+
+# public方法
+
+# 获取一段时间内Process的耗时总排序
+getProcessSort()
+{
+
+	local anamainHomeDir=$1
+	local anaDates=$2
+	local maxNum=$3 # 最多取前多少条
+	
+	oldLcAll=$LC_ALL
+	export LC_ALL='C' # 解决sort排序报错问题
+
+	(
+	for anaDate in $anaDates;do
+
+		dateDir=`getAnamainDir $anamainHomeDir $anaDate`
+		time_file_name=$dateDir/report_raw_analyze_data_whole_view/$anaDate/TRANS_TIME.sort
+		head -n $maxNum $time_file_name
+
+	done) | awk '{
+		if($4!="null")
+			{
+				print $0
+			}
+	}' | sort -nrk 4 | head -n $maxNum
+
+	export LC_ALL=$oldLcAll
+}
+
+
+# 打印每天Process的耗时分布信息
+# 日期      总数    总耗时     平均耗时 第1档  第2档 第3档 第4档     大于第4档
+# 20160121 97562   34423840    352.84  45008  18716  33234    601      3     46.13   19.18   34.06    0.62    0.00
+getCostDistributionByDate()
+{
+	local distribute_time_string="$3"
+	local anamainHomeDir=$1
+	local anaDate=$2
+
+	local dateDir=`getAnamainDir $anamainHomeDir $anaDate`
+	local time_file_name=$dateDir/report_raw_analyze_data_whole_view/$anaDate/TRANS_TIME.sort
+
+	getTimeDistributionByName -m -s $distribute_time_string -n 6 -t 4 "$time_file_name" | sed 's/MERGE_STATISTIC                                                       /'"$anaDate"' /'
+}
+
+
+# 需重构
+getCostDistributionByDateForSubmit()
+{
+	local distribute_time_string="$3"
+	local anamainHomeDir=$1
+	local anaDate=$2
+
+	local dateDir=`getAnamainDir $anamainHomeDir $anaDate`
+	local time_file_name=$dateDir/report_raw_analyze_data_whole_view/$anaDate/TRANS_TIME.sort
+
+	tempFile=/tmp/"getCostDistributionByDateForSubmit"$date"_$RANDOM"
+	grep -i "submit" $time_file_name > $tempFile
+
+	getTimeDistributionByName -m -s $distribute_time_string -n 6 -t 4 "$tempFile" | sed 's/MERGE_STATISTIC                                                       /'"$anaDate"' /' 
+
+	rm -rf $tempFile
+
+}
+
+
+# 需重构
+getCostDistributionByDateForQueryList()
+{
+	local distribute_time_string="$3"
+	local anamainHomeDir=$1
+	local anaDate=$2
+
+	local dateDir=`getAnamainDir $anamainHomeDir $anaDate`
+	local time_file_name=$dateDir/report_raw_analyze_data_whole_view/$anaDate/TRANS_TIME.sort
+
+	tempFile=/tmp/"getCostDistributionByDateForQueryList"$date"_$RANDOM"
+	grep -i "querylist" $time_file_name > $tempFile
+
+	getTimeDistributionByName -m -s $distribute_time_string -n 6 -t 4 $tempFile | sed 's/MERGE_STATISTIC                                                       /'"$anaDate"' /' 
+
+	rm -rf $tempFile
+
+}
+
+
+# 其他
+getCostDistributionByDateForOther()
+{
+	local distribute_time_string="$3"
+	local anamainHomeDir=$1
+	local anaDate=$2
+
+	local dateDir=`getAnamainDir $anamainHomeDir $anaDate`
+	local time_file_name=$dateDir/report_raw_analyze_data_whole_view/$anaDate/TRANS_TIME.sort
+
+	tempFile=/tmp/"getCostDistributionByDateForOther"$date"_$RANDOM"
+	grep -iv "querylist" $time_file_name | grep -iv "submit"> $tempFile
+ 
+	getTimeDistributionByName -m -s $distribute_time_string -n 6 -t 4 $tempFile | sed 's/MERGE_STATISTIC                                                       /'"$anaDate"' /' 
+
+	rm -rf $tempFile
+
+}
+
+
+getCostDistributionByProcessNameAndDate()
+{
+	local distribute_time_string="$3"
+	local anamainHomeDir=$1
+	local anaDate=$2
+
+	local dateDir=`getAnamainDir $anamainHomeDir $anaDate`
+	local time_file_name=$dateDir/report_raw_analyze_data_whole_view/$anaDate/TRANS_TIME.sort
+
+
+	getTimeDistributionByName -s $distribute_time_string -n 6 -t 4 $time_file_name
+
+}
+
+
+getCostDistributionByProcessName()
+{
+	local distribute_time_string="$3"
+	local anamainHomeDir=$1
+	local anaDates=$2
+	local files="" # 要分析的文件列表
+	for anaDate in $anaDates;do
+		dateDir=`getAnamainDir $anamainHomeDir $anaDate`
+		timeFile=$dateDir/report_raw_analyze_data_whole_view/$anaDate/TRANS_TIME.sort
+		files="$files $timeFile"
+	done
+	
+	getTimeDistributionByName -s $distribute_time_string -n 6 -t 4 $files
+}
+
+
+# 分析外系统接口的分布(分日期)
+getWebServiceCostDistributionByProcessNameAndDate()
+{
+	local distribute_time_string="$3"
+	local anamainHomeDir=$1
+	local anaDate=$2
+
+	local dateDir=`getAnamainDir $anamainHomeDir $anaDate`
+	local time_file_name=$dateDir/report_raw_analyze_data_whole_view/$anaDate/WS_TIME.sort
+
+
+	getTimeDistributionByName -s $distribute_time_string -n 7 -t 4 $time_file_name | sed 's/WS_STAT\.//'
+}
+
+
+# 分析外系统接口的分布（合并日期）
+getWebServiceCostDistributionByProcessName()
+{
+	local distribute_time_string="$3"
+	local anamainHomeDir=$1
+	local anaDates=$2
+	local files="" # 要分析的文件列表
+	for anaDate in $anaDates;do
+		dateDir=`getAnamainDir $anamainHomeDir $anaDate`
+		timeFile=$dateDir/report_raw_analyze_data_whole_view/$anaDate/WS_TIME.sort
+		files="$files $timeFile"
+	done
+	
+	getTimeDistributionByName -s $distribute_time_string -n 7 -t 4 "$files" | sed 's/WS_STAT\.//'
+}
+
+
+
+# 分析外系统接口的分布（合并日期）
+getSqlCostDistributionByProcessNameAndDate()
+{
+	local distribute_time_string="$3"
+	local anamainHomeDir=$1
+	local anaDates=$2
+	local files="" # 要分析的文件列表
+	for anaDate in $anaDates;do
+		dateDir=`getAnamainDir $anamainHomeDir $anaDate`
+		timeFile=$dateDir/report_raw_analyze_data_whole_view/$anaDate/SQL_TIME.sort
+		files="$files $timeFile"
+	done
+	
+	getTimeDistributionByName -s $distribute_time_string -n 7 -t 4 "$files"
+}
+
+
+
+
+# 打印每天WebService的总体耗时分布信息
+# 日期      总数    总耗时     平均耗时 第1档  第2档 第3档 第4档     大于第4档
+# 20160121 97562   34423840    352.84  45008  18716  33234    601      3     46.13   19.18   34.06    0.62    0.00
+getWebServiceCostDistributionByDate()
+{
+	local distribute_time_string="$3"
+	local anamainHomeDir=$1
+	local anaDate=$2
+
+	local dateDir=`getAnamainDir $anamainHomeDir $anaDate`
+	local time_file_name=$dateDir/report_raw_analyze_data_whole_view/$anaDate/WS_TIME.sort
+
+	getTimeDistributionByName -m -s $distribute_time_string -n 6 -t 4 "$time_file_name" | sed 's/MERGE_STATISTIC                                                       /'"$anaDate"' /'
+}
+
+
+# 打印每天WebService的总体耗时分布信息
+# 日期      总数    总耗时     平均耗时 第1档  第2档 第3档 第4档     大于第4档
+# 20160121 97562   34423840    352.84  45008  18716  33234    601      3     46.13   19.18   34.06    0.62    0.00
+getSqlCostDistributionByDate()
+{
+	local distribute_time_string="$3"
+	local anamainHomeDir=$1
+	local anaDate=$2
+
+	local dateDir=`getAnamainDir $anamainHomeDir $anaDate`
+	local time_file_name=$dateDir/report_raw_analyze_data_whole_view/$anaDate/SQL_TIME.sort
+
+	getTimeDistributionByName -m -s $distribute_time_string -n 6 -t 4 "$time_file_name" | sed 's/MERGE_STATISTIC                                                       /'"$anaDate"' /'
+}

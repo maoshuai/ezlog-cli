@@ -1,0 +1,114 @@
+# 运行test.profile
+. $EZLOG_HOME/ezlog_test/ezlog_test.profile
+# 导入这个source文件
+. $EZLOG_TEST_BASE_SOURCE
+
+
+# 获取keyword在索引文件里面的列号
+test_getKeyWordColumn()
+{
+	assertEquals 8 `getKeyWordColumn 2`
+}
+
+
+
+
+test_getDateFoldsBetweenDate_20160701_20160701()
+{
+	local filePrefix="BITS_LOG"
+	local dateFrom=20160701
+	local dateTo=20160701
+	local result=`getDateFoldsBetweenDate $filePrefix $dateFrom $dateTo`
+	assertEquals "$EZLOG_APP_LOGS_HOME/$dateFrom/*${filePrefix}* $EZLOG_APP_LOGS_HOME/*${filePrefix}*" "$result"
+}
+
+test_getDateFoldsBetweenDate_20160701_20160702()
+{
+	local filePrefix="BITS_LOG"
+	local dateFrom=20160701
+	local dateTo=20160702
+	local result=`getDateFoldsBetweenDate $filePrefix $dateFrom $dateTo`
+	assertEquals "$EZLOG_APP_LOGS_HOME/$dateFrom/*${filePrefix}* $EZLOG_APP_LOGS_HOME/$dateTo/*${filePrefix}* $EZLOG_APP_LOGS_HOME/*${filePrefix}*" "$result"
+}
+
+test_getDateFoldsBetweenDate_20160701_20160703()
+{
+	local filePrefix="BITS_LOG"
+	local dateFrom=20160701
+	local dateTo=20160703
+	local result=`getDateFoldsBetweenDate $filePrefix $dateFrom $dateTo`
+	assertEquals "$EZLOG_APP_LOGS_HOME/$dateFrom/*${filePrefix}* $EZLOG_APP_LOGS_HOME/20160702/*${filePrefix}* $EZLOG_APP_LOGS_HOME/$dateTo/*${filePrefix}* $EZLOG_APP_LOGS_HOME/*${filePrefix}*" "$result"
+}
+
+
+
+test_wherelog_get_verison()
+{
+	local version="`wherelog_get_verison | head`" # 检测第一行输出必须包含wherelog version字样
+	local greped="`echo "$version" | grep "wherelog version"`"
+}
+
+
+
+# 按关键字列出索引文件记录
+test_wherelog_list_keyword_thread_id()
+{
+	local indexFile=$EZLOG_CURRENT_TEST_DIR/wherelog_core.source.test.test_file/TRANS_TIME.txt
+	fetchLineNum="`wherelog_list_keyword 3 9800947-20160408144115476.647232 20160501 20160501 "true"`"
+	assertEquals 1 "$fetchLineNum"
+
+	fetchLine="`wherelog_list_keyword 3 9800947-20160408144115476.647232 20160501 20160501`"
+	assertEquals "2016-04-08 14:16:52,043 9800947-20160408144115476.647232 getEFCMasterProcess SUCCESS 214 PRX2422201800031 36f71408f4610b98002a BITSEF0301 9800947" "$fetchLine"
+}
+
+
+
+# 按关键字列出索引文件记录
+test_wherelog_list_keyword_business_id()
+{
+	local indexFile=$EZLOG_CURRENT_TEST_DIR/wherelog_core.source.test.test_file/TRANS_TIME.txt
+	fetchLineNum="`wherelog_list_keyword 7 LPB0310201800151 20160501 20160501 "true"`"
+	assertEquals 93 "$fetchLineNum"
+
+}
+
+
+test_wherelog_fetch_log_files()
+{
+	echo ""
+}
+
+
+test__wherelog_convert_to_stdout_plain_text()
+{
+	local firstLine=`_wherelog_convert_to_stdout "$EZLOG_CURRENT_TEST_DIR/wherelog_core.source.test.test_file/PLAIN_TEXT.txt" | head -n 1`
+	assertEquals "2016-04-08 00:50:48,928 [bits-jms.serverContainer2-1] [201604080050480048.163329 ] [TRANS_TIME_BITS] INFO   recvRequestProcess 419 null null null FAILED" "$firstLine"
+}
+
+test__wherelog_convert_to_stdout_gz()
+{
+	local firstLine=`_wherelog_convert_to_stdout "$EZLOG_CURRENT_TEST_DIR/wherelog_core.source.test.test_file/GZ.txt.gz" | head -n 1`
+	assertEquals "2016-04-08 14:16:47,260 [WebContainer : 10] [3301598-20160408144111023.243455 blackListSearchProcess] [TRANS_TIME_BITS] INFO   blackListSearchProcess 67 BITSLA0204 LAB0310201800288 36f71408f480fe740060 SUCCESS" "$firstLine"
+}
+
+test__wherelog_convert_to_stdout_2_files()
+{
+	local lines=`_wherelog_convert_to_stdout "$EZLOG_CURRENT_TEST_DIR/wherelog_core.source.test.test_file/PLAIN_TEXT.txt\
+	 $EZLOG_CURRENT_TEST_DIR/wherelog_core.source.test.test_file/GZ.txt.gz" | wc -l`
+	assertEquals 20 $lines
+
+	
+}
+
+
+
+test__wherelog_get_begin_end_time_from_index_file()
+{
+	echo ""
+	# _wherelog_get_begin_end_time_from_index_file
+}
+
+
+
+# 运行shunit2测试
+. $shunit2

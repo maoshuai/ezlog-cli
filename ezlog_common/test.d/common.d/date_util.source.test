@@ -1,0 +1,133 @@
+# 导入这个source文件
+. $EZLOG_TEST_BASE_SOURCE
+
+
+
+
+################### getCurrentDate
+test_getCurrentDate()
+{
+  assertEquals `date +"%Y%m%d"`  `getCurrentDate` 
+
+}
+
+
+
+################### isEightDigitDate
+# 一个正常的日期
+test_isEightDigitDate_true()
+{
+  assertEquals "true" `isEightDigitDate 20160801`
+}
+
+# 0834不是日期
+test_isEightDigitDate_false_1()
+{
+  assertEquals "false" `isEightDigitDate 20160834`
+}
+
+# 超过8位数，不是日期
+test_isEightDigitDate_false_2()
+{
+  assertEquals "false" `isEightDigitDate 201608041`
+}
+
+# 空白，不是日期
+test_isEightDigitDate_false_3()
+{
+  assertEquals "false" `isEightDigitDate`
+}
+
+
+# 空白，不是日期
+test_isEightDigitDate_false_max()
+{
+  assertEquals "false" `isEightDigitDate 21000101`
+}
+
+test_isEightDigitDate_false_min()
+{
+  assertEquals "false" `isEightDigitDate 11000101`
+}
+
+
+
+
+################### getDateBetween
+# 起始日比结束日晚，应该返回为空
+test_getDateBetween_dateFrom_after_dateTo()
+{
+	assertNull  "`getDateBetween 20160703 20160702`"
+}
+
+# 相同的日期，应该返回为空
+test_getDateBetween_same_date()
+{
+	assertNull  "`getDateBetween 20160701 20160701`"
+}
+
+# 相隔1天，应该返回为空
+test_getDateBetween_have_0_day()
+{
+	assertNull  "`getDateBetween 20160701 20160702`"
+}
+
+# 中间一天
+test_getDateBetween_have_1_day()
+{
+	assertEquals '20160702' "`getDateBetween 20160701 20160703`"
+}
+
+# 中间有3天
+test_getDateBetween_have_3_day()
+{
+	assertEquals '20160702 20160703 20160704' "`getDateBetween 20160701 20160705`"
+}
+
+test__dateAdd_10days()
+{
+	assertEquals 20160711 `_dateAdd 20160701 10`
+}
+
+test__dateAdd_1day()
+{
+	assertEquals 20160702 `_dateAdd 20160701 1`
+}
+
+test__dateAdd_0day()
+{
+	assertEquals 20160701 `_dateAdd 20160701 0`
+}
+
+
+
+test__dateMinus_10days()
+{
+	assertEquals 20160626 `_dateMinus 20160706 10`
+}
+
+
+test__dateMinus_0day()
+{
+	assertEquals 20160706 `_dateMinus 20160706 0`
+}
+
+
+test_dateCal_minus10days()
+{
+	assertEquals 20160626 `dateCal 20160706 -10`
+}
+
+test_dateCal_add10days()
+{
+	assertEquals 20160716 `dateCal 20160706 10`
+}
+
+test_dateCal_add0days()
+{
+	assertEquals 20160706 `dateCal 20160706 0`
+}
+
+# 运行shunit2测试
+. $shunit2
+

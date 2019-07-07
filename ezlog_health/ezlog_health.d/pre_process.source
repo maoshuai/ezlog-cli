@@ -1,0 +1,48 @@
+
+. $EZLOG_HOME/ezlog_common/common.d/ezlog_init.source
+
+# 将文件解压
+unarchive()
+{
+	local archive_dir=$1
+	local unarchive_dir=$2
+	local logDate=$3
+
+	cd $archive_dir
+	for gzFile in `find "$archive_dir" -name "anamain_$logDate*.tar.gz"`;do
+		gunzip -c $gzFile | tar -xf -
+	done
+
+	mkdir -p $unarchive_dir
+	for tempDir in `find "$archive_dir" -type d -name "anamain_$logDate*"`;do
+		mv "$tempDir" "$unarchive_dir"
+	done
+
+
+}
+
+
+get_ana_dates()
+{
+	local dateFrom=$1
+	local dateTo=$2
+
+
+	getDateSeq $dateFrom $dateTo
+
+
+}
+
+
+
+# 获取某个日期的anamain的目录
+get_anamain_dir_by_date()
+{
+	anamainHomeDir=$1
+	anaDate=$2
+	anaDate2="`dateCal $anaDate 1`"
+
+	dirName="anamain_${anaDate}_${anaDate2}"
+	echo $anamainHomeDir/$dirName
+
+}

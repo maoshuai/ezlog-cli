@@ -1,0 +1,14 @@
+# 导入这个source文件
+. $EZLOG_TEST_BASE_SOURCE
+
+
+test_jawk()
+{
+	export EZLOG_JAVA_HOME=/usr
+	cat $EZLOG_HOME/ezlog_common/test.d/common.d/common_util.source.test.files/jawk_test.txt | jawk '{print $1}'
+	# jawk
+}
+
+# 运行shunit2测试
+. $shunit2
+

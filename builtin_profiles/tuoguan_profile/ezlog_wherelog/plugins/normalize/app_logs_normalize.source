@@ -1,0 +1,130 @@
+# 日志格式的桥接
+
+# 将索引文件格式化
+# 输出的日志格式是
+# 其中第1-4是固定的，
+# 其中第1-4列为：日期，时间，process唯一号，process总耗时毫秒数；
+# 后面是自定义的关键字，推荐的关键字有：
+# process名称，process成功标志，交易码，柜员号
+# 2016-04-08 00:50:48,928 2016040881708010.705021 137 KEYWORD1 KEYWORD2 KEYWORD3
+# 这个函数的实现，要注意两点：
+# 1. 面对的文件是否被压缩了
+# 2. 按照规范，将日志关键字整理，成功标志用SUCESS FAILED表示
+
+# 托管的日志格式：
+# 58977825 2016-07-08 09:17:37.932 [requestId:C814D9E2-FF00-FF21-1189-857E09C2CD14] I ProcessId: userReconcileFundProcess.queryUserInfo ,time consumed: 297 ms! ,IP:182.119.110.117
+# 1         2          3             4                                              5    6        7                                      8     9         10  11    12
+# 注意，这个函数设计的时候，只能传入一个文件
+normalize_index_file()
+{
+	# 索引文件
+	local indexFileName="$1"
+
+	logDebug "normalize_index_file: $indexFileName"
+	
+	# 根据是否压缩分别进行处理
+	(
+		if [ x"GZ" = x"`normalize_get_file_compress_type $indexFileName`" ];then
+			gunzip -c "$indexFileName" # 解压到stdout
+		else
+			cat "$indexFileName"
+		fi
+
+
+	) 2>/dev/null |  # 在这里抑制cat到不存在的文件的stderr
+	awk '{
+		date=$2; # 2016-07-08
+		time=$3; # 09:17:37.932
+		requestId=$4; # [requestId:C814D9E2-FF00-FF21-1189-857E09C2CD14]
+		processId=$7; # userReconcileFundProcess.queryUserInfo
+		elapse=$10; #297
+		ip=$12; 
+
+		gsub(/\[requestId:/,"", requestId);
+		gsub(/\]/,"", requestId);
+		gsub(/,IP:/, "", ip);
+		gsub(/\./,",",time); # 将时间戳里面毫秒的分隔符由点号，替换为逗号: 07:28:20.952变成07:28:20,952
+
+		# ip和processId是自定义字段
+		print date , time , requestId, elapse , ip, processId
+
+	}' 
+	# 最后的输出格式如下：
+	# 2016-07-08 09:17:37,932 C814D9E2-FF00-FF21-1189-857E09C2CD14    297  182.119.110.117  userReconcileFundProcess.queryUserInfo
+}
+
+# C语言风格的字符串格式化，将索引文件进行格式化对其输出，便于阅读
+# 注意：不需要带最后的\n表示换行
+normalize_index_file_format_string()
+{
+	echo "%-10s %-11s %-36s %7d %16s  %-50s"
+}
+
+# 根据8位日期，获取对应的日志文件夹名称
+# 默认情况下，直接返回，如果日志文件夹结构有特殊，复写这个方法
+# 比如20160802，如果目录的名称也是这样的，则直接返回，如果目录的名称是类似2016-08-02，则需要在这里处理一下
+normalize_log_dir_by_date()
+{
+	
+	echo "$1"
+}
+
+# 根据8位日期，获取日志文件夹当天的归档目录（绝对路径）
+# 不同的系统，根据需求实现此方法。
+# 默认输出应用根目录下的8位日期
+normalize_get_log_dir_by_date()
+{
+	local dateNum=$1
+	local dirDate=`normalize_log_dir_by_date $dateNum`
+	# CWAP，是把日志归档到一个叫archive的目录下
+	local dirName="$EZLOG_APP_LOGS_HOME/$dirDate"
+	echo $dirName
+}
+
+
+
+# 获取非归档日志的目录
+# 默认就是 $EZLOG_APP_LOGS_HOME
+normalize_get_unarchive_log_dir()
+{
+	echo $EZLOG_APP_LOGS_HOME
+}
+
+# 判断一个文件的压缩类型，本实现是根据文件拓展名进行判断
+# 输入：文件名或文件全路径
+# 输出：文件压缩类型 :
+# PLAIN_TEXT : 没有压缩
+# GZ : gzip压缩
+normalize_get_file_compress_type()
+{
+	local fileName="$1"
+	local gzFilePattern=".*\.gz$"
+	local greped=`echo "$fileName" | grep -E "$gzFilePattern" 2>/dev/null`
+	if [ "x$greped" != "x" ];then
+		echo "GZ"
+		return
+	fi
+
+	echo "PLAIN_TEXT"
+}
+
+# 在取的一个唯一编号的日志之后，打印概要业务信息，这些概要业务信息，主要来自于索引记录里的自定义keyword
+# 第一个参数：规范话后的索引记录
+# 调用_printReportMessage输出信息
+# 当然，也可以在这里写自己的代码，去访问其他资源
+normalize_print_businessInfo()
+{
+
+	# 第一个参数，会传入日志索引记录（根据normalize_index_file整理后的格式，比如托管的如下）
+	# # 2016-07-08 09:17:37,932 C814D9E2-FF00-FF21-1189-857E09C2CD14    297  182.119.110.117  userReconcileFundProcess.queryUserInfo
+	#  日期 			时间			process唯一编号							耗时		ip          	Process 
+	indexRecord="$1"
+	
+	local processName=`echo "$indexRecord" | awk '{print $6}'`
+	local ip=`echo "$indexRecord" | awk '{print $5}'`
+	
+	_printReportMessage  $outputDir "      PROCESS ID:  $processName"
+	_printReportMessage  $outputDir "              IP:  $ip"
+
+}
+

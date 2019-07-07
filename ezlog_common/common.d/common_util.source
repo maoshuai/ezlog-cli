@@ -1,0 +1,27 @@
+# 做正则匹配
+# 1 代表匹配
+# 0 代表不匹配
+regex_test()
+{
+	if [ $# -ne 2 ];then
+		throw "regex_test needs 2 params"
+	fi
+	testString="$1"
+	pattern="$2"
+
+	flag=`echo "$testString" | egrep "$pattern"`  # 使用egrep代替awk了
+	if [ x$flag = x"" ];then
+		echo 0
+	else
+		echo 1
+	fi
+}
+
+
+jawk()
+{
+
+	local awkScript="$1"
+	local jawk_jar=$EZLOG_HOME/ezlog_common/common.d/jawk-1.03-SNAPSHOT-stand-alone.jar
+	cat | $EZLOG_JAVA_HOME/bin/java -jar "$jawk_jar" "$awkScript"
+}

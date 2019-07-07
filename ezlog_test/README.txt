@@ -1,0 +1,6 @@
+
+本目录是基于shunit2框架对ezlog的shell测试代码
+如果要运行目录下的测试代码，请先在控制台source运行set_shunit2_env.sh
+
+test.d目录下的结构，对应了要测试的shell代码结构，测试shell文件是在原文件的名字后添加.test扩展名
+
